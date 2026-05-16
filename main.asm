@@ -66,8 +66,10 @@ wEnemy3DY:        db
 
 wDay:             db
 wSpiritsLeft:     db
-wScoreLo:         db
-wScoreHi:         db
+wScoreThousands:  db
+wScoreHundreds:   db
+wScoreTens:       db
+wScoreOnes:       db
 wRNG:             db
 wHUDDirty:        db
 
@@ -181,8 +183,10 @@ InitTitle:
 
     xor a
     ld [wProjectileActive], a
-    ld [wScoreLo], a
-    ld [wScoreHi], a
+    ld [wScoreThousands], a
+    ld [wScoreHundreds], a
+    ld [wScoreTens], a
+    ld [wScoreOnes], a
     ld [wKiWaveTimer], a
     ld [wKiWaveCooldown], a
     call ClearEnemies
@@ -210,8 +214,10 @@ InitGame:
     ld [wPlayerInvuln], a
     ld [wPlayerMoveTimer], a
     ld [wProjectileActive], a
-    ld [wScoreLo], a
-    ld [wScoreHi], a
+    ld [wScoreThousands], a
+    ld [wScoreHundreds], a
+    ld [wScoreTens], a
+    ld [wScoreOnes], a
     ld [wKiWaveTimer], a
     ld [wKiWaveCooldown], a
 
@@ -1219,15 +1225,9 @@ EnemyKilledNormal:
     jr z, .score
     dec a
     ld [wSpiritsLeft], a
+
 .score:
-    ld a, [wScoreLo]
-    add 10
-    ld [wScoreLo], a
-    jr nc, .done
-    ld a, [wScoreHi]
-    inc a
-    ld [wScoreHi], a
-.done:
+    call Add100Score
     call MarkHUDDirty
     ret
 
@@ -1237,16 +1237,87 @@ EnemyKilledWave:
     jr z, .score
     dec a
     ld [wSpiritsLeft], a
+
 .score:
-    ld a, [wScoreLo]
-    add 20
-    ld [wScoreLo], a
-    jr nc, .done
-    ld a, [wScoreHi]
-    inc a
-    ld [wScoreHi], a
-.done:
+    call Add150Score
     call MarkHUDDirty
+    ret
+
+Add100Score:
+    ld a, [wScoreHundreds]
+    inc a
+    cp 10
+    jr c, .storeHundreds
+
+    xor a
+    ld [wScoreHundreds], a
+
+    ld a, [wScoreThousands]
+    inc a
+    cp 10
+    jr c, .storeThousands
+
+    ; Clamp at 9999.
+    ld a, 9
+    ld [wScoreThousands], a
+    ld [wScoreHundreds], a
+    ld [wScoreTens], a
+    ld [wScoreOnes], a
+    ret
+
+.storeThousands:
+    ld [wScoreThousands], a
+    ret
+
+.storeHundreds:
+    ld [wScoreHundreds], a
+    ret
+
+
+Add150Score:
+    ; +100
+    call Add100Score
+
+    ; +50
+    ld a, [wScoreTens]
+    add 5
+    cp 10
+    jr c, .storeTens
+
+    sub 10
+    ld [wScoreTens], a
+
+    ld a, [wScoreHundreds]
+    inc a
+    cp 10
+    jr c, .storeHundreds
+
+    xor a
+    ld [wScoreHundreds], a
+
+    ld a, [wScoreThousands]
+    inc a
+    cp 10
+    jr c, .storeThousands
+
+    ; Clamp at 9999.
+    ld a, 9
+    ld [wScoreThousands], a
+    ld [wScoreHundreds], a
+    ld [wScoreTens], a
+    ld [wScoreOnes], a
+    ret
+
+.storeThousands:
+    ld [wScoreThousands], a
+    ret
+
+.storeHundreds:
+    ld [wScoreHundreds], a
+    ret
+
+.storeTens:
+    ld [wScoreTens], a
     ret
 
 CheckProjectileEnemyCollisions:
@@ -1938,11 +2009,11 @@ UpdateHUD:
     ld a, [wPlayerHealth]
     call WriteDigitInc
 
-    ; Score - top middle: S000
-    ld hl, _SCRN0 + 32 + 8
+    ; Score - top middle: S0000
+    ld hl, _SCRN0 + 32 + 7
     ld a, TILE_S
     ld [hli], a
-    call WriteScore3Digits
+    call WriteScore4Digits
 
     ; Day - top right: D1
     ld hl, _SCRN0 + 32 + 17
@@ -1968,38 +2039,19 @@ WriteDigitInc:
     ld [hli], a
     ret
 
-WriteScore3Digits:
-    ld a, [wScoreLo]
-    ld c, a
-
-    ld b, 0
-.hundredsLoop:
-    ld a, c
-    cp 100
-    jr c, .writeHundreds
-    sub 100
-    ld c, a
-    inc b
-    jr .hundredsLoop
-.writeHundreds:
-    ld a, b
+WriteScore4Digits:
+    ld a, [wScoreThousands]
     call WriteDigitInc
 
-    ld b, 0
-.tensLoop:
-    ld a, c
-    cp 10
-    jr c, .writeTens
-    sub 10
-    ld c, a
-    inc b
-    jr .tensLoop
-.writeTens:
-    ld a, b
+    ld a, [wScoreHundreds]
     call WriteDigitInc
 
-    ld a, c
+    ld a, [wScoreTens]
     call WriteDigitInc
+
+    ld a, [wScoreOnes]
+    call WriteDigitInc
+
     ret
 
 ; ------------------------------------------------------------
