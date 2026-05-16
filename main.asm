@@ -2,6 +2,8 @@ INCLUDE "hardware.inc"
 
 DEF MAX_ENEMIES EQU 4
 
+DEF KI_WAVE_COOLDOWN EQU 180
+
 SECTION "Header", ROM0[$100]
     jp EntryPoint
     ds $150 - @, 0
@@ -22,6 +24,7 @@ wPlayerMoveTimer: db
 
 wKiWaveCharges:   db
 wKiWaveTimer:     db
+wKiWaveCooldown:  db
 
 wProjectileX:     db
 wProjectileY:     db
@@ -181,6 +184,7 @@ InitTitle:
     ld [wScoreLo], a
     ld [wScoreHi], a
     ld [wKiWaveTimer], a
+    ld [wKiWaveCooldown], a
     call ClearEnemies
     call MarkHUDDirty
 
@@ -209,6 +213,7 @@ InitGame:
     ld [wScoreLo], a
     ld [wScoreHi], a
     ld [wKiWaveTimer], a
+    ld [wKiWaveCooldown], a
 
     call ClearEnemies
 
@@ -394,16 +399,39 @@ FireProjectile:
 ; ------------------------------------------------------------
 
 UpdateKiWave:
+    ; Count down the visible Ki Wave burst.
     ld a, [wKiWaveTimer]
     and a
-    jr z, .checkInput
+    jr z, .updateCooldown
 
     dec a
     ld [wKiWaveTimer], a
-    ret
+
+.updateCooldown:
+    ; If Ki Wave is already ready, no cooldown is needed.
+    ld a, [wKiWaveCharges]
+    and a
+    jr nz, .checkInput
+
+    ; If not ready, count cooldown down.
+    ld a, [wKiWaveCooldown]
+    and a
+    jr z, .restoreCharge
+
+    dec a
+    ld [wKiWaveCooldown], a
+
+    ; If cooldown just reached zero, restore charge.
+    and a
+    jr nz, .checkInput
+
+.restoreCharge:
+    ld a, 1
+    ld [wKiWaveCharges], a
+    call MarkHUDDirty
 
 .checkInput:
-    ; B triggers Ki Wave.
+    ; B triggers Ki Wave, but only if ready.
     ld a, [wJoyButtons]
     bit 1, a
     ret z
@@ -412,12 +440,19 @@ UpdateKiWave:
     and a
     ret z
 
-    dec a
+    ; Spend the charge.
+    xor a
     ld [wKiWaveCharges], a
     call MarkHUDDirty
 
+    ; Start cooldown.
+    ld a, KI_WAVE_COOLDOWN
+    ld [wKiWaveCooldown], a
+
+    ; Start visual burst timer.
     ld a, 12
     ld [wKiWaveTimer], a
+
     ret
 
 ; ------------------------------------------------------------
@@ -1564,6 +1599,9 @@ CheckWaveClear:
 
     ld a, 1
     ld [wKiWaveCharges], a
+
+    xor a
+    ld [wKiWaveCooldown], a
 
     call GetSpiritsForCurrentDay
     ld [wSpiritsLeft], a
