@@ -19,8 +19,11 @@ wPlayerX:         db
 wPlayerY:         db
 wPlayerDir:       db
 wPlayerHealth:    db
-wPlayerInvuln:    db
-wPlayerMoveTimer: db
+wPlayerInvuln:       db
+wPlayerMoveTimer:    db
+wPlayerKnockTimer:   db
+wPlayerKnockDX:      db
+wPlayerKnockDY:      db
 
 wKiWaveCharges:   db
 wKiWaveTimer:     db
@@ -150,6 +153,7 @@ UpdateGameOver:
 
 UpdatePlaying:
     call UpdatePlayerInvuln
+    call UpdatePlayerKnockback
     call UpdatePlayer
     call UpdateKiWave
     call UpdateProjectile
@@ -189,6 +193,9 @@ InitTitle:
     ld [wScoreOnes], a
     ld [wKiWaveTimer], a
     ld [wKiWaveCooldown], a
+    ld [wPlayerKnockTimer], a
+    ld [wPlayerKnockDX], a
+    ld [wPlayerKnockDY], a
     call ClearEnemies
     call MarkHUDDirty
 
@@ -220,6 +227,9 @@ InitGame:
     ld [wScoreOnes], a
     ld [wKiWaveTimer], a
     ld [wKiWaveCooldown], a
+    ld [wPlayerKnockTimer], a
+    ld [wPlayerKnockDX], a
+    ld [wPlayerKnockDY], a
 
     call ClearEnemies
 
@@ -299,7 +309,70 @@ UpdatePlayerInvuln:
     ld [wPlayerInvuln], a
     ret
 
+UpdatePlayerKnockback:
+    ld a, [wPlayerKnockTimer]
+    and a
+    ret z
+
+    dec a
+    ld [wPlayerKnockTimer], a
+
+    ; -----------------------------
+    ; Move X by knockback direction.
+    ; DX = 1 means right.
+    ; DX = 255 means left.
+    ; -----------------------------
+    ld a, [wPlayerKnockDX]
+    cp 1
+    jr z, .knockRight
+
+.knockLeft:
+    ld a, [wPlayerX]
+    cp 16
+    jr c, .moveY
+    dec a
+    ld [wPlayerX], a
+    jr .moveY
+
+.knockRight:
+    ld a, [wPlayerX]
+    cp 152
+    jr nc, .moveY
+    inc a
+    ld [wPlayerX], a
+
+.moveY:
+    ; -----------------------------
+    ; Move Y by knockback direction.
+    ; DY = 1 means down.
+    ; DY = 255 means up.
+    ; -----------------------------
+    ld a, [wPlayerKnockDY]
+    cp 1
+    jr z, .knockDown
+
+.knockUp:
+    ld a, [wPlayerY]
+    cp 64
+    ret c
+    dec a
+    ld [wPlayerY], a
+    ret
+
+.knockDown:
+    ld a, [wPlayerY]
+    cp 144
+    ret nc
+    inc a
+    ld [wPlayerY], a
+    ret
+
 UpdatePlayer:
+    ; Do not allow manual movement while knockback is active.
+    ld a, [wPlayerKnockTimer]
+    and a
+    ret nz
+
     ; A fires a ki blast if one is not already active.
     ld a, [wJoyButtons]
     bit 0, a
@@ -1549,6 +1622,49 @@ CheckEnemyPlayerCollisions:
     call CheckPlayerEnemy3
     ret
 
+DamagePlayerFromEnemy:
+    ; Input:
+    ; B = enemy X
+    ; C = enemy Y
+    ; Sets knockback direction away from the enemy.
+
+    ; X knockback direction.
+    ld a, [wPlayerX]
+    cp b
+    jr nc, .pushRight
+
+.pushLeft:
+    ld a, 255
+    ld [wPlayerKnockDX], a
+    jr .setY
+
+.pushRight:
+    ld a, 1
+    ld [wPlayerKnockDX], a
+
+.setY:
+    ; Y knockback direction.
+    ld a, [wPlayerY]
+    cp c
+    jr nc, .pushDown
+
+.pushUp:
+    ld a, 255
+    ld [wPlayerKnockDY], a
+    jr .startKnockback
+
+.pushDown:
+    ld a, 1
+    ld [wPlayerKnockDY], a
+
+.startKnockback:
+    ; Knockback lasts 12 frames.
+    ld a, 12
+    ld [wPlayerKnockTimer], a
+
+    call DamagePlayer
+    ret
+
 DamagePlayer:
     ld a, [wPlayerHealth]
     dec a
@@ -1567,6 +1683,9 @@ DamagePlayer:
 
     xor a
     ld [wProjectileActive], a
+    ld [wPlayerKnockTimer], a
+    ld [wPlayerKnockDX], a
+    ld [wPlayerKnockDY], a
     call ClearEnemies
     ret
 
@@ -1586,9 +1705,11 @@ CheckPlayerEnemy0:
     call AbsDiffAAndB
     cp 8
     ret nc
-    xor a
-    ld [wEnemy0Active], a
-    call DamagePlayer
+    ld a, [wEnemy0X]
+    ld b, a
+    ld a, [wEnemy0Y]
+    ld c, a
+    call DamagePlayerFromEnemy
     ret
 
 CheckPlayerEnemy1:
@@ -1607,9 +1728,11 @@ CheckPlayerEnemy1:
     call AbsDiffAAndB
     cp 8
     ret nc
-    xor a
-    ld [wEnemy1Active], a
-    call DamagePlayer
+    ld a, [wEnemy1X]
+    ld b, a
+    ld a, [wEnemy1Y]
+    ld c, a
+    call DamagePlayerFromEnemy
     ret
 
 CheckPlayerEnemy2:
@@ -1628,9 +1751,11 @@ CheckPlayerEnemy2:
     call AbsDiffAAndB
     cp 8
     ret nc
-    xor a
-    ld [wEnemy2Active], a
-    call DamagePlayer
+    ld a, [wEnemy2X]
+    ld b, a
+    ld a, [wEnemy2Y]
+    ld c, a
+    call DamagePlayerFromEnemy
     ret
 
 CheckPlayerEnemy3:
@@ -1649,9 +1774,11 @@ CheckPlayerEnemy3:
     call AbsDiffAAndB
     cp 8
     ret nc
-    xor a
-    ld [wEnemy3Active], a
-    call DamagePlayer
+    ld a, [wEnemy3X]
+    ld b, a
+    ld a, [wEnemy3Y]
+    ld c, a
+    call DamagePlayerFromEnemy
     ret
 
 CheckWaveClear:
@@ -1713,6 +1840,24 @@ DrawSprites:
     ld hl, _OAMRAM
 
     ; Sprite 0: Player
+    ; During invulnerability, hide the player every few frames
+    ; to create a flashing damage effect.
+    ld a, [wPlayerInvuln]
+    and a
+    jr z, .drawPlayer
+
+    bit 2, a
+    jr z, .drawPlayer
+
+.hidePlayer:
+    xor a
+    ld [hli], a
+    ld [hli], a
+    ld [hli], a
+    ld [hli], a
+    jr .afterPlayer
+
+.drawPlayer:
     ld a, [wPlayerY]
     ld [hli], a
     ld a, [wPlayerX]
@@ -1721,6 +1866,8 @@ DrawSprites:
     ld [hli], a
     ld a, 0
     ld [hli], a
+
+.afterPlayer:
 
     ; Sprites 1-4: Enemies
     call DrawEnemy0
