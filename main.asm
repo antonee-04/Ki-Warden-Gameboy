@@ -108,11 +108,16 @@ EntryPoint:
 
 MainLoop:
     call WaitVBlank
+
+    ; Do graphics/tile updates first while we are closest to VBlank.
+    call UpdateHUDIfDirty
+    call DrawSprites
+
+    ; Then process gameplay for the next frame.
     call ReadJoypad
     call UpdateRNG
     call UpdateGame
-    call UpdateHUDIfDirty
-    call DrawSprites
+
     jr MainLoop
 
 ; ------------------------------------------------------------
@@ -196,12 +201,20 @@ InitTitle:
     ld [wPlayerKnockTimer], a
     ld [wPlayerKnockDX], a
     ld [wPlayerKnockDY], a
+    ld [wHUDDirty], a
+
     call ClearEnemies
-    call MarkHUDDirty
+    call ClearBackgroundMap
+    call DrawTitleScreen
+    call ClearOAM
 
     ret
 
 InitGame:
+    ; Clear title/menu tiles before gameplay begins.
+    ; Do this before setting STATE_PLAYING so HUD cannot draw during the transition.
+    call ClearScreenForGameplay
+
     ld a, STATE_PLAYING
     ld [wGameState], a
 
@@ -1837,6 +1850,15 @@ UpdateRNG:
     ret
 
 DrawSprites:
+    ; On the title screen, hide all gameplay sprites.
+    ld a, [wGameState]
+    cp STATE_TITLE
+    jr nz, .drawGameplaySprites
+
+    call HideAllSprites
+    ret
+
+.drawGameplaySprites:
     ld hl, _OAMRAM
 
     ; Sprite 0: Player
@@ -1906,6 +1928,22 @@ DrawSprites:
 
     ; 20 sprite slots used, 20 remaining.
     call HideRemainingSprites
+    ret
+
+HideAllSprites:
+    ld hl, _OAMRAM
+    ld b, 40
+    xor a
+
+.loop:
+    ld [hli], a
+    ld [hli], a
+    ld [hli], a
+    ld [hli], a
+
+    dec b
+    jr nz, .loop
+
     ret
 
 DrawEnemy0:
@@ -2117,6 +2155,12 @@ MarkHUDDirty:
     ret
 
 UpdateHUDIfDirty:
+    ; HUD should only draw during gameplay.
+    ; Title and game-over screens own the background tilemap.
+    ld a, [wGameState]
+    cp STATE_PLAYING
+    ret nz
+
     ld a, [wHUDDirty]
     and a
     ret z
@@ -2146,8 +2190,85 @@ ClearHUDRows:
     jr nz, .clearBottom
     ret
 
+DrawTitleScreen:
+    ; --------------------------------
+    ; Row 5, roughly centred:
+    ; KI WARDEN
+    ; --------------------------------
+    ld hl, _SCRN0 + 160 + 6
+
+    ld a, TILE_K
+    ld [hli], a
+
+    ld a, TILE_I
+    ld [hli], a
+
+    xor a
+    ld [hli], a
+
+    ld a, TILE_W
+    ld [hli], a
+
+    ld a, TILE_A
+    ld [hli], a
+
+    ld a, TILE_R
+    ld [hli], a
+
+    ld a, TILE_D
+    ld [hli], a
+
+    ld a, TILE_E
+    ld [hli], a
+
+    ld a, TILE_N
+    ld [hli], a
+
+
+    ; --------------------------------
+    ; Row 11, roughly centred:
+    ; PRESS START
+    ; --------------------------------
+    ld hl, _SCRN0 + 352 + 4
+
+    ld a, TILE_P
+    ld [hli], a
+
+    ld a, TILE_R
+    ld [hli], a
+
+    ld a, TILE_E
+    ld [hli], a
+
+    ld a, TILE_S
+    ld [hli], a
+
+    ld a, TILE_S
+    ld [hli], a
+
+    xor a
+    ld [hli], a
+
+    ld a, TILE_S
+    ld [hli], a
+
+    ld a, TILE_T
+    ld [hli], a
+
+    ld a, TILE_A
+    ld [hli], a
+
+    ld a, TILE_R
+    ld [hli], a
+
+    ld a, TILE_T
+    ld [hli], a
+
+    ret
+
 UpdateHUD:
-    ; call ClearHUDRows
+    ; Do not clear HUD rows here.
+    ; The HUD is fixed-width, so I only overwrite the exact tiles I use.
 
     ; Health - top left: H5
     ld hl, _SCRN0 + 32 + 1
@@ -2271,6 +2392,24 @@ ClearOAM:
     ld [hli], a
     dec b
     jr nz, .loop
+    ret
+
+ClearScreenForGameplay:
+    ; Full background clears should happen while the LCD is off.
+    ; This avoids partial tilemap writes while the screen is drawing.
+
+    call WaitVBlank
+
+    xor a
+    ldh [rLCDC], a
+
+    call ClearBackgroundMap
+    call ClearOAM
+
+    ; LCD on, tile data at $8000, sprites on, BG on.
+    ld a, %10010011
+    ldh [rLCDC], a
+
     ret
 
 ClearBackgroundMap:
@@ -2536,6 +2675,86 @@ SpriteTiles:
     db %11100111, %11100111
     db %01111110, %01111110
     db %00111100, %00111100
+    db %00011000, %00011000
+
+; Tile 21: K
+    db %10000010, %10000010
+    db %10000100, %10000100
+    db %10001000, %10001000
+    db %11110000, %11110000
+    db %10001000, %10001000
+    db %10000100, %10000100
+    db %10000010, %10000010
+    db %10000001, %10000001
+
+; Tile 22: I
+    db %01111110, %01111110
+    db %00011000, %00011000
+    db %00011000, %00011000
+    db %00011000, %00011000
+    db %00011000, %00011000
+    db %00011000, %00011000
+    db %00011000, %00011000
+    db %01111110, %01111110
+
+; Tile 23: A
+    db %00111100, %00111100
+    db %01000010, %01000010
+    db %10000001, %10000001
+    db %11111111, %11111111
+    db %10000001, %10000001
+    db %10000001, %10000001
+    db %10000001, %10000001
+    db %10000001, %10000001
+
+; Tile 24: R
+    db %11111100, %11111100
+    db %10000010, %10000010
+    db %10000010, %10000010
+    db %11111100, %11111100
+    db %10001000, %10001000
+    db %10000100, %10000100
+    db %10000010, %10000010
+    db %10000001, %10000001
+
+; Tile 25: E
+    db %11111111, %11111111
+    db %10000000, %10000000
+    db %10000000, %10000000
+    db %11111100, %11111100
+    db %10000000, %10000000
+    db %10000000, %10000000
+    db %10000000, %10000000
+    db %11111111, %11111111
+
+; Tile 26: N
+    db %10000001, %10000001
+    db %11000001, %11000001
+    db %10100001, %10100001
+    db %10010001, %10010001
+    db %10001001, %10001001
+    db %10000101, %10000101
+    db %10000011, %10000011
+    db %10000001, %10000001
+
+; Tile 27: P
+    db %11111100, %11111100
+    db %10000010, %10000010
+    db %10000010, %10000010
+    db %11111100, %11111100
+    db %10000000, %10000000
+    db %10000000, %10000000
+    db %10000000, %10000000
+    db %10000000, %10000000
+
+; Tile 28: T
+    db %11111111, %11111111
+    db %00011000, %00011000
+    db %00011000, %00011000
+    db %00011000, %00011000
+    db %00011000, %00011000
+    db %00011000, %00011000
+    db %00011000, %00011000
     db %00011000, %00011000
 
 SpriteTilesEnd:
