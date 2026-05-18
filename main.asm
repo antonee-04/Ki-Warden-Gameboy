@@ -73,6 +73,13 @@ wScoreThousands:  db
 wScoreHundreds:   db
 wScoreTens:       db
 wScoreOnes:       db
+
+wHighThousands:   db
+wHighHundreds:    db
+wHighTens:        db
+wHighOnes:        db
+
+
 wRNG:             db
 wHUDDirty:        db
 
@@ -196,6 +203,10 @@ InitTitle:
     ld [wScoreHundreds], a
     ld [wScoreTens], a
     ld [wScoreOnes], a
+    ld [wHighThousands], a
+    ld [wHighHundreds], a
+    ld [wHighTens], a
+    ld [wHighOnes], a
     ld [wKiWaveTimer], a
     ld [wKiWaveCooldown], a
     ld [wPlayerKnockTimer], a
@@ -284,6 +295,38 @@ ClearEnemies:
     ld [wEnemy3DY], a
     ret
 
+
+EnterGameOver:
+    ; Update high score before drawing the game-over screen.
+    call UpdateHighScoreIfNeeded
+
+    ; Stop gameplay objects.
+    xor a
+    ld [wProjectileActive], a
+    ld [wPlayerKnockTimer], a
+    ld [wPlayerKnockDX], a
+    ld [wPlayerKnockDY], a
+    ld [wHUDDirty], a
+    call ClearEnemies
+
+    ; Game-over screen owns the background map.
+    call WaitVBlank
+    xor a
+    ldh [rLCDC], a
+
+    call ClearBackgroundMap
+    call ClearOAM
+
+    call DrawGameOverScreen
+
+    ; LCD on, tile data at $8000, sprites on, BG on.
+    ld a, %10010011
+    ldh [rLCDC], a
+
+    ld a, STATE_GAMEOVER
+    ld [wGameState], a
+
+    ret
 ; ------------------------------------------------------------
 ; Joypad
 ; ------------------------------------------------------------
@@ -1406,6 +1449,57 @@ Add150Score:
     ld [wScoreTens], a
     ret
 
+UpdateHighScoreIfNeeded:
+    ; Compare score thousands.
+    ld a, [wScoreThousands]
+    ld b, a
+    ld a, [wHighThousands]
+    cp b
+    jr c, .copyScoreToHigh
+    jr nz, .done
+
+    ; Compare hundreds.
+    ld a, [wScoreHundreds]
+    ld b, a
+    ld a, [wHighHundreds]
+    cp b
+    jr c, .copyScoreToHigh
+    jr nz, .done
+
+    ; Compare tens.
+    ld a, [wScoreTens]
+    ld b, a
+    ld a, [wHighTens]
+    cp b
+    jr c, .copyScoreToHigh
+    jr nz, .done
+
+    ; Compare ones.
+    ld a, [wScoreOnes]
+    ld b, a
+    ld a, [wHighOnes]
+    cp b
+    jr c, .copyScoreToHigh
+    jr nz, .done
+
+.done:
+    ret
+
+.copyScoreToHigh:
+    ld a, [wScoreThousands]
+    ld [wHighThousands], a
+
+    ld a, [wScoreHundreds]
+    ld [wHighHundreds], a
+
+    ld a, [wScoreTens]
+    ld [wHighTens], a
+
+    ld a, [wScoreOnes]
+    ld [wHighOnes], a
+
+    ret
+
 CheckProjectileEnemyCollisions:
     ld a, [wProjectileActive]
     and a
@@ -1691,15 +1785,7 @@ DamagePlayer:
     and a
     ret nz
 
-    ld a, STATE_GAMEOVER
-    ld [wGameState], a
-
-    xor a
-    ld [wProjectileActive], a
-    ld [wPlayerKnockTimer], a
-    ld [wPlayerKnockDX], a
-    ld [wPlayerKnockDY], a
-    call ClearEnemies
+    call EnterGameOver
     ret
 
 CheckPlayerEnemy0:
@@ -1850,10 +1936,10 @@ UpdateRNG:
     ret
 
 DrawSprites:
-    ; On the title screen, hide all gameplay sprites.
+    ; On menu screens, hide all gameplay sprites.
     ld a, [wGameState]
-    cp STATE_TITLE
-    jr nz, .drawGameplaySprites
+    cp STATE_PLAYING
+    jr z, .drawGameplaySprites
 
     call HideAllSprites
     ret
@@ -2263,6 +2349,116 @@ DrawTitleScreen:
 
     ld a, TILE_T
     ld [hli], a
+
+    ret
+
+DrawGameOverScreen:
+    ; Row 4, centred: GAME OVER
+    ld hl, _SCRN0 + 128 + 5
+
+    ld a, TILE_G
+    ld [hli], a
+    ld a, TILE_A
+    ld [hli], a
+    ld a, TILE_M
+    ld [hli], a
+    ld a, TILE_E
+    ld [hli], a
+
+    xor a
+    ld [hli], a
+
+    ld a, TILE_O
+    ld [hli], a
+    ld a, TILE_V
+    ld [hli], a
+    ld a, TILE_E
+    ld [hli], a
+    ld a, TILE_R
+    ld [hli], a
+
+
+    ; Row 8: SCORE 0000
+    ld hl, _SCRN0 + 256 + 4
+
+    ld a, TILE_S
+    ld [hli], a
+    ld a, TILE_C
+    ld [hli], a
+    ld a, TILE_O
+    ld [hli], a
+    ld a, TILE_R
+    ld [hli], a
+    ld a, TILE_E
+    ld [hli], a
+
+    xor a
+    ld [hli], a
+
+    call WriteScore4Digits
+
+
+    ; Row 10: HIGH 0000
+    ld hl, _SCRN0 + 320 + 5
+
+    ld a, TILE_H
+    ld [hli], a
+    ld a, TILE_I
+    ld [hli], a
+    ld a, TILE_G
+    ld [hli], a
+    ld a, TILE_H
+    ld [hli], a
+
+    xor a
+    ld [hli], a
+
+    call WriteHighScore4Digits
+
+
+    ; Row 14: PRESS START
+    ld hl, _SCRN0 + 448 + 4
+
+    ld a, TILE_P
+    ld [hli], a
+    ld a, TILE_R
+    ld [hli], a
+    ld a, TILE_E
+    ld [hli], a
+    ld a, TILE_S
+    ld [hli], a
+    ld a, TILE_S
+    ld [hli], a
+
+    xor a
+    ld [hli], a
+
+    ld a, TILE_S
+    ld [hli], a
+    ld a, TILE_T
+    ld [hli], a
+    ld a, TILE_A
+    ld [hli], a
+    ld a, TILE_R
+    ld [hli], a
+    ld a, TILE_T
+    ld [hli], a
+
+    ret
+
+
+WriteHighScore4Digits:
+    ld a, [wHighThousands]
+    call WriteDigitInc
+
+    ld a, [wHighHundreds]
+    call WriteDigitInc
+
+    ld a, [wHighTens]
+    call WriteDigitInc
+
+    ld a, [wHighOnes]
+    call WriteDigitInc
 
     ret
 
@@ -2756,5 +2952,55 @@ SpriteTiles:
     db %00011000, %00011000
     db %00011000, %00011000
     db %00011000, %00011000
+
+; Tile 29: G
+    db %00111110, %00111110
+    db %01000000, %01000000
+    db %10000000, %10000000
+    db %10011110, %10011110
+    db %10000010, %10000010
+    db %10000010, %10000010
+    db %01000010, %01000010
+    db %00111100, %00111100
+
+; Tile 30: M
+    db %10000001, %10000001
+    db %11000011, %11000011
+    db %10100101, %10100101
+    db %10011001, %10011001
+    db %10000001, %10000001
+    db %10000001, %10000001
+    db %10000001, %10000001
+    db %10000001, %10000001
+
+; Tile 31: O
+    db %00111100, %00111100
+    db %01000010, %01000010
+    db %10000001, %10000001
+    db %10000001, %10000001
+    db %10000001, %10000001
+    db %10000001, %10000001
+    db %01000010, %01000010
+    db %00111100, %00111100
+
+; Tile 32: V
+    db %10000001, %10000001
+    db %10000001, %10000001
+    db %10000001, %10000001
+    db %01000010, %01000010
+    db %01000010, %01000010
+    db %00100100, %00100100
+    db %00100100, %00100100
+    db %00011000, %00011000
+
+; Tile 33: C
+    db %00111110, %00111110
+    db %01000000, %01000000
+    db %10000000, %10000000
+    db %10000000, %10000000
+    db %10000000, %10000000
+    db %10000000, %10000000
+    db %01000000, %01000000
+    db %00111110, %00111110
 
 SpriteTilesEnd:
