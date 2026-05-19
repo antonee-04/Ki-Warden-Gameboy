@@ -235,9 +235,16 @@ InitTitle:
     ld [wHUDDirty], a
 
     call ClearEnemies
+
+    ; Title screen owns the background map.
+    ; At boot the LCD is already off, so these VRAM writes are safe.
     call ClearBackgroundMap
-    call DrawTitleScreen
+    call ClearBackgroundAttributes
     call ClearOAM
+
+    call DrawTitleArena
+    call DrawTitleScreen
+    call SetTitleScreenPalettes
 
     call StartTitleMusic
 
@@ -344,9 +351,12 @@ EnterGameOver:
     ldh [rLCDC], a
 
     call ClearBackgroundMap
+    call ClearBackgroundAttributes
     call ClearOAM
 
+    call DrawGameOverArena
     call DrawGameOverScreen
+    call SetGameOverScreenPalettes
 
     ; LCD on, tile data at $8000, sprites on, BG on.
     ld a, %10010011
@@ -2274,6 +2284,57 @@ HideRemainingSprites:
 ; Gameplay arena background
 ; ------------------------------------------------------------
 
+; ------------------------------------------------------------
+; Title / game over arena backgrounds
+; ------------------------------------------------------------
+
+DrawTitleArena:
+    ; Reuse the temple arena as the title background.
+    call DrawGameplayArena
+
+    ; Decorative emblem above the title.
+    ld hl, _SCRN0 + 96 + 9
+    ld a, TILE_TITLE_EMBLEM
+    ld [hli], a
+    ld [hli], a
+
+    ; Small cracked stones around the prompt area.
+    ld hl, _SCRN0 + 416 + 3
+    ld a, TILE_FLOOR_CRACK
+    ld [hl], a
+
+    ld hl, _SCRN0 + 416 + 16
+    ld a, TILE_FLOOR_CRACK
+    ld [hl], a
+
+    ret
+
+
+DrawGameOverArena:
+    ; Reuse the temple arena as the game over background.
+    call DrawGameplayArena
+
+    ; Spirit/skull marker above GAME OVER.
+    ld hl, _SCRN0 + 64 + 9
+    ld a, TILE_SKULL_ICON
+    ld [hli], a
+    ld [hli], a
+
+    ; Extra cracked floor details to make this screen feel harsher.
+    ld hl, _SCRN0 + 224 + 3
+    ld a, TILE_FLOOR_CRACK
+    ld [hl], a
+
+    ld hl, _SCRN0 + 224 + 16
+    ld a, TILE_FLOOR_CRACK
+    ld [hl], a
+
+    ld hl, _SCRN0 + 480 + 9
+    ld a, TILE_FLOOR_CRACK
+    ld [hl], a
+
+    ret
+
 DrawGameplayArena:
     ; Fill the visible 20x18 screen area with floor tiles.
     ; The full BG map is 32 tiles wide, so each visible row starts 32 tiles later.
@@ -2421,15 +2482,13 @@ ClearHUDRows:
     ret
 
 DrawTitleScreen:
-    ; --------------------------------
-    ; Row 5, roughly centred:
-    ; KI WARDEN
-    ; --------------------------------
+    ; --------------------------------------------------------
+    ; Row 5: KI WARDEN
+    ; --------------------------------------------------------
     ld hl, _SCRN0 + 160 + 6
 
     ld a, TILE_K
     ld [hli], a
-
     ld a, TILE_I
     ld [hli], a
 
@@ -2438,41 +2497,51 @@ DrawTitleScreen:
 
     ld a, TILE_W
     ld [hli], a
-
     ld a, TILE_A
     ld [hli], a
-
     ld a, TILE_R
     ld [hli], a
-
     ld a, TILE_D
     ld [hli], a
-
     ld a, TILE_E
     ld [hli], a
-
     ld a, TILE_N
     ld [hli], a
 
 
-    ; --------------------------------
-    ; Row 11, roughly centred:
-    ; PRESS START
-    ; --------------------------------
-    ld hl, _SCRN0 + 352 + 4
+    ; --------------------------------------------------------
+    ; Row 8: KI WAVE / moon icons as decoration.
+    ; --------------------------------------------------------
+    ld hl, _SCRN0 + 256 + 7
+    ld a, TILE_KI_ICON
+    ld [hli], a
+
+    xor a
+    ld [hli], a
+
+    ld a, TILE_MOON_ICON
+    ld [hli], a
+
+    xor a
+    ld [hli], a
+
+    ld a, TILE_KI_ICON
+    ld [hli], a
+
+
+    ; --------------------------------------------------------
+    ; Row 12: PRESS START
+    ; --------------------------------------------------------
+    ld hl, _SCRN0 + 384 + 4
 
     ld a, TILE_P
     ld [hli], a
-
     ld a, TILE_R
     ld [hli], a
-
     ld a, TILE_E
     ld [hli], a
-
     ld a, TILE_S
     ld [hli], a
-
     ld a, TILE_S
     ld [hli], a
 
@@ -2481,23 +2550,21 @@ DrawTitleScreen:
 
     ld a, TILE_S
     ld [hli], a
-
     ld a, TILE_T
     ld [hli], a
-
     ld a, TILE_A
     ld [hli], a
-
     ld a, TILE_R
     ld [hli], a
-
     ld a, TILE_T
     ld [hli], a
 
     ret
 
 DrawGameOverScreen:
-    ; Row 4, centred: GAME OVER
+    ; --------------------------------------------------------
+    ; Row 4: GAME OVER
+    ; --------------------------------------------------------
     ld hl, _SCRN0 + 128 + 5
 
     ld a, TILE_G
@@ -2522,8 +2589,16 @@ DrawGameOverScreen:
     ld [hli], a
 
 
+    ; --------------------------------------------------------
     ; Row 8: SCORE 0000
+    ; --------------------------------------------------------
     ld hl, _SCRN0 + 256 + 4
+
+    ld a, TILE_SCORE_ICON
+    ld [hli], a
+
+    xor a
+    ld [hli], a
 
     ld a, TILE_S
     ld [hli], a
@@ -2542,8 +2617,16 @@ DrawGameOverScreen:
     call WriteScore4Digits
 
 
+    ; --------------------------------------------------------
     ; Row 10: HIGH 0000
+    ; --------------------------------------------------------
     ld hl, _SCRN0 + 320 + 5
+
+    ld a, TILE_MOON_ICON
+    ld [hli], a
+
+    xor a
+    ld [hli], a
 
     ld a, TILE_H
     ld [hli], a
@@ -2560,7 +2643,9 @@ DrawGameOverScreen:
     call WriteHighScore4Digits
 
 
+    ; --------------------------------------------------------
     ; Row 14: PRESS START
+    ; --------------------------------------------------------
     ld hl, _SCRN0 + 448 + 4
 
     ld a, TILE_P
@@ -2589,7 +2674,6 @@ DrawGameOverScreen:
     ld [hli], a
 
     ret
-
 
 WriteHighScore4Digits:
     ld a, [wHighThousands]
@@ -2656,6 +2740,107 @@ SetGameplayHUDPalettes:
     jr nz, .ki
 
     ; Always return to VRAM bank 0 so normal tilemap/tile writes work.
+    xor a
+    ldh [rVBK], a
+
+    ret
+
+SetTitleScreenPalettes:
+    ; GBC BG attributes live in VRAM bank 1.
+    ld a, 1
+    ldh [rVBK], a
+
+    ; Title emblem: row 3, columns 9-10, blue.
+    ld hl, _SCRN0 + 96 + 9
+    ld b, 2
+.titleEmblem:
+    ld a, PAL_BG_KI
+    ld [hli], a
+    dec b
+    jr nz, .titleEmblem
+
+    ; Main title: row 5, columns 6-14, gold.
+    ld hl, _SCRN0 + 160 + 6
+    ld b, 9
+.titleText:
+    ld a, PAL_BG_SCORE
+    ld [hli], a
+    dec b
+    jr nz, .titleText
+
+    ; Decorative icons: row 8, columns 7-11.
+    ld hl, _SCRN0 + 256 + 7
+    ld b, 5
+.titleIcons:
+    ld a, PAL_BG_KI
+    ld [hli], a
+    dec b
+    jr nz, .titleIcons
+
+    ; Press Start: row 12, columns 4-14, white.
+    ld hl, _SCRN0 + 384 + 4
+    ld b, 11
+.titlePrompt:
+    ld a, PAL_BG_MOON
+    ld [hli], a
+    dec b
+    jr nz, .titlePrompt
+
+    xor a
+    ldh [rVBK], a
+
+    ret
+
+SetGameOverScreenPalettes:
+    ; GBC BG attributes live in VRAM bank 1.
+    ld a, 1
+    ldh [rVBK], a
+
+    ; Skull/spirit marker: row 2, columns 9-10, red.
+    ld hl, _SCRN0 + 64 + 9
+    ld b, 2
+.gameOverIcon:
+    ld a, PAL_BG_HEART
+    ld [hli], a
+    dec b
+    jr nz, .gameOverIcon
+
+    ; GAME OVER: row 4, columns 5-13, red.
+    ld hl, _SCRN0 + 128 + 5
+    ld b, 9
+.gameOverTitle:
+    ld a, PAL_BG_HEART
+    ld [hli], a
+    dec b
+    jr nz, .gameOverTitle
+
+    ; SCORE line: row 8, columns 4-15, gold.
+    ld hl, _SCRN0 + 256 + 4
+    ld b, 12
+.gameOverScore:
+    ld a, PAL_BG_SCORE
+    ld [hli], a
+    dec b
+    jr nz, .gameOverScore
+
+    ; HIGH line: row 10, columns 5-15, white.
+    ld hl, _SCRN0 + 320 + 5
+    ld b, 11
+.gameOverHigh:
+    ld a, PAL_BG_MOON
+    ld [hli], a
+    dec b
+    jr nz, .gameOverHigh
+
+    ; PRESS START: row 14, columns 4-14, blue.
+    ld hl, _SCRN0 + 448 + 4
+    ld b, 11
+.gameOverPrompt:
+    ld a, PAL_BG_KI
+    ld [hli], a
+    dec b
+    jr nz, .gameOverPrompt
+
     xor a
     ldh [rVBK], a
 
@@ -3557,6 +3742,7 @@ ClearOAM:
     jr nz, .loop
     ret
 
+
 ClearScreenForGameplay:
     ; Full background clears should happen while the LCD is off.
     ; Keep it off so the arena and GBC palette attributes can be written safely too.
@@ -3567,9 +3753,11 @@ ClearScreenForGameplay:
     ldh [rLCDC], a
 
     call ClearBackgroundMap
+    call ClearBackgroundAttributes
     call ClearOAM
 
     ret
+
 
 TurnGameplayLCDOn:
     ; LCD on, tile data at $8000, sprites on, BG on.
@@ -3577,9 +3765,15 @@ TurnGameplayLCDOn:
     ldh [rLCDC], a
     ret
 
+
 ClearBackgroundMap:
+    ; Clear tile IDs in VRAM bank 0.
+    xor a
+    ldh [rVBK], a
+
     ld hl, _SCRN0
     ld bc, 1024
+
 .loop:
     xor a
     ld [hli], a
@@ -3587,6 +3781,31 @@ ClearBackgroundMap:
     ld a, b
     or c
     jr nz, .loop
+
+    ret
+
+
+ClearBackgroundAttributes:
+    ; Clear GBC BG attributes in VRAM bank 1.
+    ; This resets palette attributes back to palette 0.
+    ld a, 1
+    ldh [rVBK], a
+
+    ld hl, _SCRN0
+    ld bc, 1024
+
+.loop:
+    xor a
+    ld [hli], a
+    dec bc
+    ld a, b
+    or c
+    jr nz, .loop
+
+    ; Return to normal tilemap bank.
+    xor a
+    ldh [rVBK], a
+
     ret
 
 ; ------------------------------------------------------------
@@ -4272,5 +4491,25 @@ SpriteTiles:
     db %01111000, %01111000
     db %00111110, %00111110
     db %00011100, %00011100
+
+; Tile 44: Title emblem / shrine ki mark
+    db %00011000, %00011000
+    db %00111100, %00111100
+    db %01111110, %01111110
+    db %11111111, %11111111
+    db %10111101, %10111101
+    db %00011000, %00011000
+    db %00100100, %00100100
+    db %01000010, %01000010
+
+; Tile 45: Game over skull / fallen spirit
+    db %00111100, %00111100
+    db %01111110, %01111110
+    db %11011011, %11011011
+    db %11111111, %11111111
+    db %10100101, %10100101
+    db %11111111, %11111111
+    db %01100110, %01100110
+    db %00111100, %00111100
 
 SpriteTilesEnd:
