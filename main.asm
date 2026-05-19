@@ -245,8 +245,11 @@ InitTitle:
 
 InitGame:
     ; Clear title/menu tiles before gameplay begins.
-    ; Do this before setting STATE_PLAYING so HUD cannot draw during the transition.
+    ; LCD stays off while we draw the arena and set GBC HUD attributes.
     call ClearScreenForGameplay
+    call DrawGameplayArena
+    call SetGameplayHUDPalettes
+    call TurnGameplayLCDOn
     call StopMusic
 
     ld a, STATE_PLAYING
@@ -2268,6 +2271,111 @@ HideRemainingSprites:
     ret
 
 ; ------------------------------------------------------------
+; Gameplay arena background
+; ------------------------------------------------------------
+
+DrawGameplayArena:
+    ; Fill the visible 20x18 screen area with floor tiles.
+    ; The full BG map is 32 tiles wide, so each visible row starts 32 tiles later.
+
+    ld hl, _SCRN0
+    ld b, 18
+
+.rowLoop:
+    push bc
+
+    ld b, 20
+.tileLoop:
+    ld a, TILE_FLOOR
+    ld [hli], a
+    dec b
+    jr nz, .tileLoop
+
+    ; Move HL from end of visible row to start of next visible row.
+    ; 32 total BG tiles per row - 20 visible tiles = 12 skipped tiles.
+    ld de, 12
+    add hl, de
+
+    pop bc
+    dec b
+    jr nz, .rowLoop
+
+
+    ; Top border row, row 0.
+    ld hl, _SCRN0
+    ld a, TILE_CORNER
+    ld [hli], a
+
+    ld b, 18
+.topBorder:
+    ld a, TILE_BORDER_H
+    ld [hli], a
+    dec b
+    jr nz, .topBorder
+
+    ld a, TILE_CORNER
+    ld [hli], a
+
+
+    ; Bottom border row, row 17.
+    ld hl, _SCRN0 + 544
+    ld a, TILE_CORNER
+    ld [hli], a
+
+    ld b, 18
+.bottomBorder:
+    ld a, TILE_BORDER_H
+    ld [hli], a
+    dec b
+    jr nz, .bottomBorder
+
+    ld a, TILE_CORNER
+    ld [hli], a
+
+
+    ; Left and right borders, rows 1-16.
+    ld hl, _SCRN0 + 32
+    ld b, 16
+
+.sideLoop:
+    ld a, TILE_BORDER_V
+    ld [hl], a
+
+    push hl
+    ld de, 19
+    add hl, de
+    ld a, TILE_BORDER_V
+    ld [hl], a
+    pop hl
+
+    ld de, 32
+    add hl, de
+
+    dec b
+    jr nz, .sideLoop
+
+
+    ; Add a few cracked floor details manually.
+    ; These are decorative only.
+    ld hl, _SCRN0 + 160 + 4
+    ld a, TILE_FLOOR_CRACK
+    ld [hl], a
+
+    ld hl, _SCRN0 + 224 + 14
+    ld a, TILE_FLOOR_CRACK
+    ld [hl], a
+
+    ld hl, _SCRN0 + 352 + 7
+    ld a, TILE_FLOOR_CRACK
+    ld [hl], a
+
+    ld hl, _SCRN0 + 448 + 15
+    ld a, TILE_FLOOR_CRACK
+    ld [hl], a
+
+    ret
+
+; ------------------------------------------------------------
 ; HUD
 ; ------------------------------------------------------------
 
@@ -2498,36 +2606,126 @@ WriteHighScore4Digits:
 
     ret
 
-UpdateHUD:
-    ; Do not clear HUD rows here.
-    ; The HUD is fixed-width, so I only overwrite the exact tiles I use.
+; ------------------------------------------------------------
+; GBC HUD palette attributes
+; ------------------------------------------------------------
 
-    ; Health - top left: H5
+SetGameplayHUDPalettes:
+    ; GBC background tile attributes live in VRAM bank 1.
+    ; The normal tile numbers live in VRAM bank 0.
+    ld a, 1
+    ldh [rVBK], a
+
+    ; Hearts: row 1, columns 1-5, palette 1 red.
     ld hl, _SCRN0 + 32 + 1
-    ld a, TILE_H
+    ld b, 5
+.hearts:
+    ld a, PAL_BG_HEART
     ld [hli], a
-    ld a, [wPlayerHealth]
-    call WriteDigitInc
+    dec b
+    jr nz, .hearts
 
-    ; Score - top middle: S0000
-    ld hl, _SCRN0 + 32 + 7
-    ld a, TILE_S
+    ; Score: row 1, columns 8-12, palette 2 white/gold.
+    ; Icon + four digits.
+    ld hl, _SCRN0 + 32 + 8
+    ld b, 5
+.score:
+    ld a, PAL_BG_SCORE
+    ld [hli], a
+    dec b
+    jr nz, .score
+
+    ; Day: row 1, columns 17-18, palette 4 moon/white.
+    ; Moon icon + digit.
+    ld hl, _SCRN0 + 32 + 17
+    ld b, 2
+.day:
+    ld a, PAL_BG_MOON
+    ld [hli], a
+    dec b
+    jr nz, .day
+
+    ; Ki Wave: row 16, columns 1-2, palette 3 blue.
+    ; Ki icon + charge digit.
+    ld hl, _SCRN0 + 512 + 1
+    ld b, 2
+.ki:
+    ld a, PAL_BG_KI
+    ld [hli], a
+    dec b
+    jr nz, .ki
+
+    ; Always return to VRAM bank 0 so normal tilemap/tile writes work.
+    xor a
+    ldh [rVBK], a
+
+    ret
+
+UpdateHUD:
+    ; --------------------------------------------------------
+    ; Health - top left.
+    ; Draw 5 heart slots. Full hearts are based on wPlayerHealth.
+    ; Row 1, columns 1-5.
+    ; --------------------------------------------------------
+    ld hl, _SCRN0 + 32 + 1
+    ld b, 5
+    ld c, 1
+
+.healthLoop:
+    ld a, [wPlayerHealth]
+    cp c
+    jr c, .emptyHeart
+
+    ld a, TILE_HEART_FULL
+    jr .writeHeart
+
+.emptyHeart:
+    ld a, TILE_HEART_EMPTY
+
+.writeHeart:
+    ld [hli], a
+    inc c
+    dec b
+    jr nz, .healthLoop
+
+
+    ; --------------------------------------------------------
+    ; Score - top middle.
+    ; Icon + four digits.
+    ; Row 1, columns 8-12.
+    ; --------------------------------------------------------
+    ld hl, _SCRN0 + 32 + 8
+    ld a, TILE_SCORE_ICON
     ld [hli], a
     call WriteScore4Digits
 
-    ; Day - top right: D1
+
+    ; --------------------------------------------------------
+    ; Day - top right.
+    ; Moon icon + one digit.
+    ; Row 1, columns 17-18.
+    ; --------------------------------------------------------
     ld hl, _SCRN0 + 32 + 17
-    ld a, TILE_D
+    ld a, TILE_MOON_ICON
     ld [hli], a
     ld a, [wDay]
     call WriteDigitInc
 
-    ; Ki Wave - bottom left: W1
+
+    ; --------------------------------------------------------
+    ; Ki Wave - bottom left.
+    ; Blue ki icon + charge digit.
+    ; Row 16, columns 1-2.
+    ;
+    ; This moves it one row above the bottom border so it does not
+    ; fight with the new arena frame.
+    ; --------------------------------------------------------
     ld hl, _SCRN0 + 512 + 1
-    ld a, TILE_W
+    ld a, TILE_KI_ICON
     ld [hli], a
     ld a, [wKiWaveCharges]
     call WriteDigitInc
+
     ret
 
 WriteDigitInc:
@@ -2573,10 +2771,13 @@ LoadSpriteTiles:
     ret
 
 LoadCGBPalettes:
+    ; Load all 8 background palettes.
+    ; 8 palettes * 4 colours * 2 bytes = 64 bytes.
     ld a, $80
     ldh [rBCPS], a
-    ld de, BGPalette
-    ld b, 8
+    ld de, BGPalettes
+    ld b, 64
+
 .copyBG:
     ld a, [de]
     ldh [rBCPD], a
@@ -2584,16 +2785,19 @@ LoadCGBPalettes:
     dec b
     jr nz, .copyBG
 
+    ; Load existing object palettes.
     ld a, $80
     ldh [rOCPS], a
     ld de, OBJPalettes
     ld b, 32
+
 .copyOBJ:
     ld a, [de]
     ldh [rOCPD], a
     inc de
     dec b
     jr nz, .copyOBJ
+
     ret
 
 ; ------------------------------------------------------------
@@ -3355,7 +3559,7 @@ ClearOAM:
 
 ClearScreenForGameplay:
     ; Full background clears should happen while the LCD is off.
-    ; This avoids partial tilemap writes while the screen is drawing.
+    ; Keep it off so the arena and GBC palette attributes can be written safely too.
 
     call WaitVBlank
 
@@ -3365,10 +3569,12 @@ ClearScreenForGameplay:
     call ClearBackgroundMap
     call ClearOAM
 
+    ret
+
+TurnGameplayLCDOn:
     ; LCD on, tile data at $8000, sprites on, BG on.
     ld a, %10010011
     ldh [rLCDC], a
-
     ret
 
 ClearBackgroundMap:
@@ -3552,11 +3758,54 @@ SECTION "Graphics Data", ROM0
 
 ; 4-colour Game Boy Color palettes.
 ; Each colour is 15-bit BGR, little endian.
-BGPalette:
+BGPalettes:
+; BG palette 0: Arena / world grey
     db $6B, $35 ; colour 0: medium grey
     db $4A, $29 ; colour 1: dark grey
     db $21, $14 ; colour 2: darker grey
     db $00, $00 ; colour 3: black
+
+; BG palette 1: Hearts, red
+    db $6B, $35 ; colour 0: same floor grey
+    db $1F, $00 ; colour 1: dark red
+    db $3F, $00 ; colour 2: bright red
+    db $3F, $00 ; colour 3: bright red
+
+; BG palette 2: Score, gold/yellow
+    db $6B, $35 ; colour 0: same floor grey
+    db $FF, $7F ; colour 1: white
+    db $FF, $03 ; colour 2: gold/yellow
+    db $FF, $03 ; colour 3: gold/yellow
+
+; BG palette 3: Ki icon pink, Ki number pink
+    db $6B, $35 ; colour 0: same floor grey
+    db $FF, $7F ; colour 1: white
+    db $E0, $7F ; colour 2: cyan
+    db $1F, $7C ; colour 3: bright blue
+
+; BG palette 4: Moon icon and day number white
+    db $6B, $35 ; colour 0: same floor grey
+    db $FF, $7F ; colour 1: white
+    db $9C, $73 ; colour 2: pale grey
+    db $FF, $7F ; colour 3: white
+
+; BG palette 5: spare, same as world
+    db $6B, $35
+    db $4A, $29
+    db $21, $14
+    db $00, $00
+
+; BG palette 6: spare, same as world
+    db $6B, $35
+    db $4A, $29
+    db $21, $14
+    db $00, $00
+
+; BG palette 7: spare, same as world
+    db $6B, $35
+    db $4A, $29
+    db $21, $14
+    db $00, $00
 
 OBJPalettes:
 ; OBJ palette 0: Player / monk, warm gold
@@ -3923,5 +4172,105 @@ SpriteTiles:
     db %10000000, %10000000
     db %01000000, %01000000
     db %00111110, %00111110
+
+; Tile 34: Temple floor
+    db %00000000, %00000000
+    db %00010000, %00010000
+    db %00000000, %00000000
+    db %00000010, %00000010
+    db %00000000, %00000000
+    db %01000000, %01000000
+    db %00000000, %00000000
+    db %00000100, %00000100
+
+; Tile 35: Cracked temple floor
+    db %00000000, %00000000
+    db %00010000, %00010000
+    db %00110000, %00110000
+    db %00011000, %00011000
+    db %00001100, %00001100
+    db %00000110, %00000110
+    db %01000010, %01000010
+    db %00000000, %00000000
+
+; Tile 36: Horizontal border
+    db %11111111, %11111111
+    db %10000001, %10000001
+    db %10111101, %10111101
+    db %10100101, %10100101
+    db %10100101, %10100101
+    db %10111101, %10111101
+    db %10000001, %10000001
+    db %11111111, %11111111
+
+; Tile 37: Vertical border
+    db %11111111, %11111111
+    db %10011001, %10011001
+    db %10011001, %10011001
+    db %10011001, %10011001
+    db %10011001, %10011001
+    db %10011001, %10011001
+    db %10011001, %10011001
+    db %11111111, %11111111
+
+; Tile 38: Border corner
+    db %11111111, %11111111
+    db %10000001, %10000001
+    db %10111101, %10111101
+    db %10100101, %10100101
+    db %10100101, %10100101
+    db %10111101, %10111101
+    db %10000001, %10000001
+    db %11111111, %11111111
+
+; Tile 39: Full heart
+    db %00000000, %00000000
+    db %01100110, %01100110
+    db %11111111, %11111111
+    db %11111111, %11111111
+    db %11111111, %11111111
+    db %01111110, %01111110
+    db %00111100, %00111100
+    db %00011000, %00011000
+
+; Tile 40: Empty heart
+    db %00000000, %00000000
+    db %01100110, %00000000
+    db %10011001, %00000000
+    db %10000001, %00000000
+    db %10000001, %00000000
+    db %01000010, %00000000
+    db %00100100, %00000000
+    db %00011000, %00000000
+
+; Tile 41: Score icon / shrine coin
+    db %00011000, %00011000
+    db %00111100, %00111100
+    db %01111110, %01111110
+    db %01100110, %01100110
+    db %01111110, %01111110
+    db %00111100, %00111100
+    db %00011000, %00011000
+    db %00000000, %00000000
+
+; Tile 42: Ki wave icon
+    db %00011000, %00011000
+    db %00111100, %00111100
+    db %01111110, %01111110
+    db %11111111, %11111111
+    db %01111110, %01111110
+    db %00111100, %00111100
+    db %00011000, %00011000
+    db %00100100, %00100100
+
+; Tile 43: Moon icon
+    db %00011100, %00011100
+    db %00111110, %00111110
+    db %01111000, %01111000
+    db %01110000, %01110000
+    db %01110000, %01110000
+    db %01111000, %01111000
+    db %00111110, %00111110
+    db %00011100, %00011100
 
 SpriteTilesEnd:
