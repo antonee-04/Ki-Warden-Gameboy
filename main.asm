@@ -104,6 +104,7 @@ EntryPoint:
     ldh [rOBP1], a
 
     call LoadCGBPalettes
+    call InitSound
     call LoadSpriteTiles
     call ClearBackgroundMap
     call ClearOAM
@@ -151,6 +152,7 @@ UpdateTitle:
     bit 3, a
     ret z
 
+    call PlayStartGameSfx
     call InitGame
     ret
 
@@ -160,6 +162,7 @@ UpdateGameOver:
     bit 3, a
     ret z
 
+    call PlayStartGameSfx
     call InitGame
     ret
 
@@ -322,6 +325,8 @@ EnterGameOver:
     ; LCD on, tile data at $8000, sprites on, BG on.
     ld a, %10010011
     ldh [rLCDC], a
+
+    call PlayGameOverSfx
 
     ld a, STATE_GAMEOVER
     ld [wGameState], a
@@ -527,6 +532,8 @@ FireProjectile:
     ld a, [wPlayerDir]
     ld [wProjectileDir], a
 
+    call PlayKiBlastSfx
+
     ret
 
 ; ------------------------------------------------------------
@@ -587,6 +594,8 @@ UpdateKiWave:
     ; Start visual burst timer.
     ld a, 12
     ld [wKiWaveTimer], a
+
+    call PlayKiWaveSfx
 
     ret
 
@@ -1357,6 +1366,7 @@ EnemyKilledNormal:
 
 .score:
     call Add100Score
+    call PlayEnemyHitSfx
     call MarkHUDDirty
     ret
 
@@ -1777,6 +1787,7 @@ DamagePlayer:
     dec a
     ld [wPlayerHealth], a
     call MarkHUDDirty
+    call PlayPlayerHurtSfx
 
     ld a, 60
     ld [wPlayerInvuln], a
@@ -2558,6 +2569,170 @@ LoadCGBPalettes:
     inc de
     dec b
     jr nz, .copyOBJ
+    ret
+
+; ------------------------------------------------------------
+; Sound
+; ------------------------------------------------------------
+
+InitSound:
+    ; Enable the Game Boy sound hardware.
+    ld a, $80
+    ldh [rNR52], a
+
+    ; Set left/right master volume.
+    ld a, $77
+    ldh [rNR50], a
+
+    ; Route all sound channels to both speakers.
+    ld a, $FF
+    ldh [rNR51], a
+
+    ret
+
+
+PlayKiBlastSfx:
+    ; Ki blast: sharp zap + noisy fwoosh.
+    ; Channel 1 gives the zappy pitch.
+    ; Channel 4 gives the fire/fwoosh texture.
+
+    ; Channel 1 - bright zap
+    ld a, $00
+    ldh [rNR10], a
+
+    ld a, $40
+    ldh [rNR11], a
+
+    ld a, $D2
+    ldh [rNR12], a
+
+    ld a, $E0
+    ldh [rNR13], a
+
+    ld a, $87
+    ldh [rNR14], a
+
+
+    ; Channel 4 - short noisy fwoosh
+    ld a, $10
+    ldh [rNR41], a
+
+    ld a, $93
+    ldh [rNR42], a
+
+    ld a, $45
+    ldh [rNR43], a
+
+    ld a, $80
+    ldh [rNR44], a
+
+    ret
+
+PlayEnemyHitSfx:
+    ; Lower pop/zap on channel 2.
+    ld a, $40
+    ldh [rNR21], a
+
+    ld a, $A3
+    ldh [rNR22], a
+
+    ld a, $80
+    ldh [rNR23], a
+
+    ld a, $86
+    ldh [rNR24], a
+
+    ret
+
+
+PlayKiWaveSfx:
+    ; Ki Wave: deeper joom + buzzing forcefield.
+    ; Channel 1 gives a heavier pulse.
+    ; Channel 4 adds the bzz/static texture.
+
+    ; Channel 1 - low force pulse
+    ld a, $00
+    ldh [rNR10], a
+
+    ld a, $80
+    ldh [rNR11], a
+
+    ld a, $F5
+    ldh [rNR12], a
+
+    ld a, $40
+    ldh [rNR13], a
+
+    ld a, $86
+    ldh [rNR14], a
+
+
+    ; Channel 4 - forcefield buzz
+    ld a, $20
+    ldh [rNR41], a
+
+    ld a, $A5
+    ldh [rNR42], a
+
+    ld a, $36
+    ldh [rNR43], a
+
+    ld a, $80
+    ldh [rNR44], a
+
+    ret
+
+PlayPlayerHurtSfx:
+    ; Harsh noise burst on channel 4.
+    ld a, $1F
+    ldh [rNR41], a
+
+    ld a, $F3
+    ldh [rNR42], a
+
+    ld a, $5D
+    ldh [rNR43], a
+
+    ld a, $80
+    ldh [rNR44], a
+
+    ret
+
+PlayStartGameSfx:
+    ; Bright start/confirm sound.
+    ; Uses channel 1 for a clean upward-feeling ping.
+
+    ld a, $00
+    ldh [rNR10], a
+
+    ld a, $40
+    ldh [rNR11], a
+
+    ld a, $F3
+    ldh [rNR12], a
+
+    ld a, $A0
+    ldh [rNR13], a
+
+    ld a, $87
+    ldh [rNR14], a
+
+    ret
+
+PlayGameOverSfx:
+    ; Low thud tone on channel 2.
+    ld a, $80
+    ldh [rNR21], a
+
+    ld a, $F5
+    ldh [rNR22], a
+
+    ld a, $00
+    ldh [rNR23], a
+
+    ld a, $84
+    ldh [rNR24], a
+
     ret
 
 ; ------------------------------------------------------------

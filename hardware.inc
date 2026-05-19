@@ -58,3 +58,24 @@ DEF TILE_M EQU 30
 DEF TILE_O EQU 31
 DEF TILE_V EQU 32
 DEF TILE_C EQU 33
+
+; Game Boy sound registers
+DEF rNR10 EQU $FF10 ; Channel 1 sweep
+DEF rNR11 EQU $FF11 ; Channel 1 duty/length
+DEF rNR12 EQU $FF12 ; Channel 1 volume envelope
+DEF rNR13 EQU $FF13 ; Channel 1 frequency low
+DEF rNR14 EQU $FF14 ; Channel 1 frequency high/control
+
+DEF rNR21 EQU $FF16 ; Channel 2 duty/length
+DEF rNR22 EQU $FF17 ; Channel 2 volume envelope
+DEF rNR23 EQU $FF18 ; Channel 2 frequency low
+DEF rNR24 EQU $FF19 ; Channel 2 frequency high/control
+
+DEF rNR41 EQU $FF20 ; Channel 4 length
+DEF rNR42 EQU $FF21 ; Channel 4 volume envelope
+DEF rNR43 EQU $FF22 ; Channel 4 noise frequency
+DEF rNR44 EQU $FF23 ; Channel 4 control
+
+DEF rNR50 EQU $FF24 ; Master volume
+DEF rNR51 EQU $FF25 ; Sound output routing
+DEF rNR52 EQU $FF26 ; Sound on/off
