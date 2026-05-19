@@ -71,6 +71,14 @@ DEF rNR22 EQU $FF17 ; Channel 2 volume envelope
 DEF rNR23 EQU $FF18 ; Channel 2 frequency low
 DEF rNR24 EQU $FF19 ; Channel 2 frequency high/control
 
+DEF rNR30 EQU $FF1A ; Channel 3 sound on/off
+DEF rNR31 EQU $FF1B ; Channel 3 length
+DEF rNR32 EQU $FF1C ; Channel 3 volume
+DEF rNR33 EQU $FF1D ; Channel 3 frequency low
+DEF rNR34 EQU $FF1E ; Channel 3 frequency high/control
+
+DEF _AUD3WAVERAM EQU $FF30 ; Channel 3 wave pattern RAM
+
 DEF rNR41 EQU $FF20 ; Channel 4 length
 DEF rNR42 EQU $FF21 ; Channel 4 volume envelope
 DEF rNR43 EQU $FF22 ; Channel 4 noise frequency

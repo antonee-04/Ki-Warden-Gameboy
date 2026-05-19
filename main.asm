@@ -83,6 +83,20 @@ wHighOnes:        db
 wRNG:             db
 wHUDDirty:        db
 
+wMusicEnabled:       db
+
+wMusicMelodyTimer:   db
+wMusicMelodyIndex:   db
+
+wMusicBassTimer:     db
+wMusicBassIndex:     db
+
+wMusicDrumTimer:     db
+wMusicDrumIndex:     db
+
+wGameplayMusicTempoCounter: db
+wMusicFrameStep:            db
+
 SECTION "Main Code", ROM0
 
 EntryPoint:
@@ -116,6 +130,9 @@ EntryPoint:
 
 MainLoop:
     call WaitVBlank
+
+    ; Audio sequencer tick.
+    call UpdateMusic
 
     ; Do graphics/tile updates first while we are closest to VBlank.
     call UpdateHUDIfDirty
@@ -222,15 +239,20 @@ InitTitle:
     call DrawTitleScreen
     call ClearOAM
 
+    call StartTitleMusic
+
     ret
 
 InitGame:
     ; Clear title/menu tiles before gameplay begins.
     ; Do this before setting STATE_PLAYING so HUD cannot draw during the transition.
     call ClearScreenForGameplay
+    call StopMusic
 
     ld a, STATE_PLAYING
     ld [wGameState], a
+
+    call StartGameplayMusic
 
     ld a, 80
     ld [wPlayerX], a
@@ -302,6 +324,7 @@ ClearEnemies:
 EnterGameOver:
     ; Update high score before drawing the game-over screen.
     call UpdateHighScoreIfNeeded
+    call StopMusic
 
     ; Stop gameplay objects.
     xor a
@@ -330,6 +353,8 @@ EnterGameOver:
 
     ld a, STATE_GAMEOVER
     ld [wGameState], a
+
+    call StartGameOverJingle
 
     ret
 ; ------------------------------------------------------------
@@ -2588,8 +2613,25 @@ InitSound:
     ld a, $FF
     ldh [rNR51], a
 
+    call LoadWavePattern
+
     ret
 
+LoadWavePattern:
+    ; Load a soft triangle-ish waveform into Channel 3 wave RAM.
+    ; Each byte contains two 4-bit samples.
+    ld hl, _AUD3WAVERAM
+    ld de, WavePattern
+    ld b, 16
+
+.copyWave:
+    ld a, [de]
+    ld [hli], a
+    inc de
+    dec b
+    jr nz, .copyWave
+
+    ret
 
 PlayKiBlastSfx:
     ; Ki blast: sharp zap + noisy fwoosh.
@@ -2700,7 +2742,7 @@ PlayPlayerHurtSfx:
 
 PlayStartGameSfx:
     ; Bright start/confirm sound.
-    ; Uses channel 1 for a clean upward-feeling ping.
+    ; Uses channel 1 for a clean upward feeling ping.
 
     ld a, $00
     ldh [rNR10], a
@@ -2735,6 +2777,552 @@ PlayGameOverSfx:
 
     ret
 
+
+; ------------------------------------------------------------
+; Music
+; ------------------------------------------------------------
+
+StartTitleMusic:
+    ld a, 1
+    ld [wMusicEnabled], a
+
+    xor a
+    ld [wMusicMelodyTimer], a
+    ld [wMusicMelodyIndex], a
+    ld [wMusicBassTimer], a
+    ld [wMusicBassIndex], a
+    ld [wMusicDrumTimer], a
+    ld [wMusicDrumIndex], a
+
+    ; Enable Channel 3 DAC for bass/wave layer.
+    ld a, $80
+    ldh [rNR30], a
+
+    ; Channel 3 volume: half.
+    ld a, $40
+    ldh [rNR32], a
+
+    ret
+
+StartGameOverJingle:
+    ld a, 1
+    ld [wMusicEnabled], a
+
+    xor a
+    ld [wMusicMelodyTimer], a
+    ld [wMusicMelodyIndex], a
+    ld [wMusicBassTimer], a
+    ld [wMusicBassIndex], a
+    ld [wMusicDrumTimer], a
+    ld [wMusicDrumIndex], a
+
+    ; Enable Channel 3 DAC for bass layer.
+    ld a, $80
+    ldh [rNR30], a
+
+    ; Channel 3 volume: half.
+    ld a, $40
+    ldh [rNR32], a
+
+    ret
+
+StartGameplayMusic:
+    ld a, 1
+    ld [wMusicEnabled], a
+
+    xor a
+    ld [wMusicMelodyTimer], a
+    ld [wMusicMelodyIndex], a
+    ld [wMusicBassTimer], a
+    ld [wMusicBassIndex], a
+    ld [wMusicDrumTimer], a
+    ld [wMusicDrumIndex], a
+    ld [wGameplayMusicTempoCounter], a
+    ld [wMusicFrameStep], a
+
+    ld a, 1
+    ld [wMusicFrameStep], a
+
+    ; Enable Channel 3 DAC for the gameplay pulse/bass.
+    ld a, $80
+    ldh [rNR30], a
+
+    ; Channel 3 volume: half.
+    ld a, $60
+    ldh [rNR32], a
+
+    ret
+
+StopMusic:
+    xor a
+    ld [wMusicEnabled], a
+    ld [wMusicMelodyTimer], a
+    ld [wMusicMelodyIndex], a
+    ld [wMusicBassTimer], a
+    ld [wMusicBassIndex], a
+    ld [wMusicDrumTimer], a
+    ld [wMusicDrumIndex], a
+
+    ld [wGameplayMusicTempoCounter], a
+    ld [wMusicFrameStep], a
+
+    ; Silence Channel 2 melody.
+    xor a
+    ldh [rNR22], a
+
+    ; Disable Channel 3 bass.
+    xor a
+    ldh [rNR30], a
+
+    ret
+
+UpdateMusic:
+    ld a, [wMusicEnabled]
+    and a
+    ret z
+
+    ld a, [wGameState]
+
+    cp STATE_TITLE
+    jr z, .titleMusic
+
+    cp STATE_PLAYING
+    jr z, .gameplayMusic
+
+    cp STATE_GAMEOVER
+    jr z, .gameOverMusic
+
+    call StopMusic
+    ret
+
+.titleMusic:
+    call UpdateTitleMelody
+    call UpdateTitleBass
+    ret
+
+.gameplayMusic:
+    call UpdateGameplayTempo
+    call UpdateGameplayMelody
+    call UpdateGameplayBass
+    ret
+
+.gameOverMusic:
+    call UpdateGameOverMelody
+    call UpdateGameOverBass
+    ret
+
+UpdateTitleMelody:
+    ld a, [wMusicMelodyTimer]
+    and a
+    jr z, .nextNote
+
+    dec a
+    ld [wMusicMelodyTimer], a
+    ret
+
+.nextNote:
+    ld a, [wMusicMelodyIndex]
+    ld e, a
+    ld d, 0
+
+    ld hl, TitleMelodyData
+    add hl, de
+
+    ; Byte 0 = frequency low, or $FF to loop.
+    ld a, [hli]
+    cp $FF
+    jr z, .loopSong
+
+    ; Store frequency low.
+    ld c, a
+
+    ; Channel 2 duty/length.
+    ld a, $80
+    ldh [rNR21], a
+
+    ; Channel 2 volume envelope.
+    ld a, $84
+    ldh [rNR22], a
+
+    ; Frequency low.
+    ld a, c
+    ldh [rNR23], a
+
+    ; Byte 1 = frequency high + trigger.
+    ld a, [hli]
+    or $80
+    ldh [rNR24], a
+
+    ; Byte 2 = duration.
+    ld a, [hli]
+    ld [wMusicMelodyTimer], a
+
+    ld a, [wMusicMelodyIndex]
+    add 3
+    ld [wMusicMelodyIndex], a
+
+    ret
+
+.loopSong:
+    xor a
+    ld [wMusicMelodyIndex], a
+    ld [wMusicMelodyTimer], a
+    ret
+
+
+UpdateTitleBass:
+    ld a, [wMusicBassTimer]
+    and a
+    jr z, .nextNote
+
+    dec a
+    ld [wMusicBassTimer], a
+    ret
+
+.nextNote:
+    ld a, [wMusicBassIndex]
+    ld e, a
+    ld d, 0
+
+    ld hl, TitleBassData
+    add hl, de
+
+    ld a, [hli]
+    cp $FF
+    jr z, .loopSong
+
+    ; Frequency low on Channel 3.
+    ldh [rNR33], a
+
+    ; Frequency high + trigger.
+    ld a, [hli]
+    or $80
+    ldh [rNR34], a
+
+    ; Duration.
+    ld a, [hli]
+    ld [wMusicBassTimer], a
+
+    ld a, [wMusicBassIndex]
+    add 3
+    ld [wMusicBassIndex], a
+
+    ret
+
+.loopSong:
+    xor a
+    ld [wMusicBassIndex], a
+    ld [wMusicBassTimer], a
+    ret
+
+UpdateGameOverMelody:
+    ld a, [wMusicMelodyTimer]
+    and a
+    jr z, .nextNote
+
+    dec a
+    ld [wMusicMelodyTimer], a
+    ret
+
+.nextNote:
+    ld a, [wMusicMelodyIndex]
+    ld e, a
+    ld d, 0
+
+    ld hl, GameOverMelodyData
+    add hl, de
+
+    ; Byte 0 = frequency low, $FE = stop, $FF = loop.
+    ld a, [hli]
+    cp $FE
+    jr z, .endJingle
+    cp $FF
+    jr z, .loopSong
+
+    ; Store frequency low.
+    ld c, a
+
+    ; Channel 2 duty/length.
+    ld a, $80
+    ldh [rNR21], a
+
+    ; Softer envelope for a sad game over tone.
+    ld a, $84
+    ldh [rNR22], a
+
+    ; Frequency low.
+    ld a, c
+    ldh [rNR23], a
+
+    ; Frequency high + trigger.
+    ld a, [hli]
+    or $80
+    ldh [rNR24], a
+
+    ; Duration.
+    ld a, [hli]
+    ld [wMusicMelodyTimer], a
+
+    ld a, [wMusicMelodyIndex]
+    add 3
+    ld [wMusicMelodyIndex], a
+
+    ret
+
+.loopSong:
+    xor a
+    ld [wMusicMelodyIndex], a
+    ld [wMusicMelodyTimer], a
+    ret
+
+.endJingle:
+    ; Stop melody channel only.
+    xor a
+    ldh [rNR22], a
+    ld [wMusicMelodyTimer], a
+    ret
+
+
+UpdateGameOverBass:
+    ld a, [wMusicBassTimer]
+    and a
+    jr z, .nextNote
+
+    dec a
+    ld [wMusicBassTimer], a
+    ret
+
+.nextNote:
+    ld a, [wMusicBassIndex]
+    ld e, a
+    ld d, 0
+
+    ld hl, GameOverBassData
+    add hl, de
+
+    ; Byte 0 = frequency low, $FE = stop, $FF = loop.
+    ld a, [hli]
+    cp $FE
+    jr z, .endJingle
+    cp $FF
+    jr z, .loopSong
+
+    ; Channel 3 frequency low.
+    ldh [rNR33], a
+
+    ; Channel 3 frequency high + trigger.
+    ld a, [hli]
+    or $80
+    ldh [rNR34], a
+
+    ; Duration.
+    ld a, [hli]
+    ld [wMusicBassTimer], a
+
+    ld a, [wMusicBassIndex]
+    add 3
+    ld [wMusicBassIndex], a
+
+    ret
+
+.loopSong:
+    xor a
+    ld [wMusicBassIndex], a
+    ld [wMusicBassTimer], a
+    ret
+
+.endJingle:
+    ; Disable Channel 3 bass.
+    xor a
+    ldh [rNR30], a
+    ld [wMusicBassTimer], a
+    ret
+
+UpdateGameplayMelody:
+    ld a, [wMusicMelodyTimer]
+    and a
+    jr z, .nextNote
+
+    ld b, a
+    ld a, [wMusicFrameStep]
+    ld c, a
+
+    ld a, b
+    cp c
+    jr c, .melodyTimerZero
+
+    sub c
+    ld [wMusicMelodyTimer], a
+    ret
+
+.melodyTimerZero:
+    xor a
+    ld [wMusicMelodyTimer], a
+    ret
+
+.nextNote:
+    ld a, [wMusicMelodyIndex]
+    ld e, a
+    ld d, 0
+
+    ld hl, GameplayMelodyData
+    add hl, de
+
+    ; Byte 0 = frequency low, or $FF to loop.
+    ld a, [hli]
+    cp $FF
+    jr z, .loopSong
+
+    ; Store frequency low.
+    ld c, a
+
+    ; Channel 2 duty/length.
+    ld a, $80
+    ldh [rNR21], a
+
+    ; Channel 2 volume envelope.
+    ld a, $43
+    ldh [rNR22], a
+
+    ; Frequency low.
+    ld a, c
+    ldh [rNR23], a
+
+    ; Frequency high + trigger.
+    ld a, [hli]
+    or $80
+    ldh [rNR24], a
+
+    ; Duration.
+    ld a, [hli]
+    ld [wMusicMelodyTimer], a
+
+    ld a, [wMusicMelodyIndex]
+    add 3
+    ld [wMusicMelodyIndex], a
+
+    ret
+
+.loopSong:
+    xor a
+    ld [wMusicMelodyIndex], a
+    ld [wMusicMelodyTimer], a
+    ret
+
+
+UpdateGameplayBass:
+    ld a, [wMusicBassTimer]
+    and a
+    jr z, .nextNote
+
+    ld b, a
+    ld a, [wMusicFrameStep]
+    ld c, a
+
+    ld a, b
+    cp c
+    jr c, .bassTimerZero
+
+    sub c
+    ld [wMusicBassTimer], a
+    ret
+
+.bassTimerZero:
+    xor a
+    ld [wMusicBassTimer], a
+    ret
+
+.nextNote:
+    ld a, [wMusicBassIndex]
+    ld e, a
+    ld d, 0
+
+    ld hl, GameplayBassData
+    add hl, de
+
+    ; Byte 0 = frequency low, or $FF to loop.
+    ld a, [hli]
+    cp $FF
+    jr z, .loopSong
+
+    ; Channel 3 frequency low.
+    ldh [rNR33], a
+
+    ; Channel 3 frequency high + trigger.
+    ld a, [hli]
+    or $80
+    ldh [rNR34], a
+
+    ; Duration.
+    ld a, [hli]
+    ld [wMusicBassTimer], a
+
+    ld a, [wMusicBassIndex]
+    add 3
+    ld [wMusicBassIndex], a
+
+    ret
+
+.loopSong:
+    xor a
+    ld [wMusicBassIndex], a
+    ld [wMusicBassTimer], a
+    ret
+
+UpdateGameplayTempo:
+    ; music timers tick down by 1.
+    ld a, 1
+    ld [wMusicFrameStep], a
+
+    ; Every 5 days, gameplay music gains occasional extra ticks.
+    ; This keeps the loop structure intact while subtly increasing tempo.
+    ld a, [wDay]
+
+    cp 20
+    jr nc, .threshold4
+
+    cp 15
+    jr nc, .threshold6
+
+    cp 10
+    jr nc, .threshold8
+
+    cp 5
+    jr nc, .threshold12
+
+    ret
+
+.threshold12:
+    ld b, 12
+    jr .tickCounter
+
+.threshold8:
+    ld b, 8
+    jr .tickCounter
+
+.threshold6:
+    ld b, 6
+    jr .tickCounter
+
+.threshold4:
+    ld b, 4
+
+.tickCounter:
+    ld a, [wGameplayMusicTempoCounter]
+    inc a
+    ld [wGameplayMusicTempoCounter], a
+
+    cp b
+    ret c
+
+    ; Counter reached threshold, so this frame gets an extra music tick.
+    xor a
+    ld [wGameplayMusicTempoCounter], a
+
+    ld a, 2
+    ld [wMusicFrameStep], a
+
+    ret
 ; ------------------------------------------------------------
 ; Timing and clearing
 ; ------------------------------------------------------------
@@ -2798,6 +3386,164 @@ ClearBackgroundMap:
 ; ------------------------------------------------------------
 ; Data
 ; ------------------------------------------------------------
+
+; ------------------------------------------------------------
+; Title music data
+; Channel 2 = melody
+; Channel 3 = bass pulse
+;
+; Format:
+; db frequencyLow, frequencyHigh, duration
+; $FF loops table
+; ------------------------------------------------------------
+
+TitleMelodyData:
+    ; 256-frame action style title loop.
+    ; Each phrase = 64 frames.
+
+    ; Phrase A - main hook
+    db $42, $06, 8  ; D4
+    db $89, $06, 8  ; F4
+    db $D6, $06, 8  ; A4
+    db $B2, $06, 8  ; G4
+    db $89, $06, 8  ; F4
+    db $72, $06, 8  ; E4
+    db $42, $06, 16 ; D4
+
+    ; Phrase B - climb
+    db $42, $06, 8  ; D4
+    db $89, $06, 8  ; F4
+    db $B2, $06, 8  ; G4
+    db $D6, $06, 8  ; A4
+    db $06, $07, 8  ; C5
+    db $D6, $06, 8  ; A4
+    db $B2, $06, 16 ; G4
+
+    ; Phrase C - higher answer
+    db $D6, $06, 8  ; A4
+    db $06, $07, 8  ; C5
+    db $21, $07, 8  ; D5
+    db $06, $07, 8  ; C5
+    db $D6, $06, 8  ; A4
+    db $B2, $06, 8  ; G4
+    db $89, $06, 16 ; F4
+
+    ; Phrase D - resolution
+    db $B2, $06, 8  ; G4
+    db $D6, $06, 8  ; A4
+    db $B2, $06, 8  ; G4
+    db $89, $06, 8  ; F4
+    db $72, $06, 8  ; E4
+    db $89, $06, 8  ; F4
+    db $42, $06, 16 ; D4
+
+    db $FF
+
+
+TitleBassData:
+    ; Same total length as melody: 4 x 64 = 256 frames.
+    ; Keeps the loop locked together.
+
+    db $83, $04, 64 ; D3
+    db $11, $05, 64 ; F3
+    db $63, $05, 64 ; G3
+    db $83, $04, 64 ; D3
+
+    db $FF
+
+; ------------------------------------------------------------
+; Game Over jingle data
+; Channel 2 = melody
+; Channel 3 = bass
+;
+; Format:
+; db frequencyLow, frequencyHigh, duration
+; $FE = end/stop channel
+; $FF = loop, not used here
+; ------------------------------------------------------------
+
+GameOverMelodyData:
+    db $21, $07, 18 ; D5
+    db $06, $07, 18 ; C5
+    db $D6, $06, 18 ; A4
+    db $89, $06, 18 ; F4
+    db $42, $06, 36 ; D4
+    db $FE
+
+GameOverBassData:
+    db $83, $04, 36 ; D3
+    db $11, $05, 36 ; F3
+    db $83, $04, 54 ; D3
+    db $FE
+
+; ------------------------------------------------------------
+; Gameplay music data
+; Channel 2 = short melody stabs
+; Channel 3 = steady pulse/bass
+;
+; Format:
+; db frequencyLow, frequencyHigh, duration
+; $FF loops table
+; ------------------------------------------------------------
+
+GameplayMelodyData:
+    ; 128-frame tense gameplay loop.
+    ; More restrained than the title music.
+    ; Uses short repeated motifs so it feels tense without distracting.
+
+    ; Phrase 1 - low tension
+    db $42, $06, 12 ; D4
+    db $72, $06, 8  ; E4
+    db $89, $06, 12 ; F4
+    db $72, $06, 8  ; E4
+    db $42, $06, 24 ; D4
+
+    ; Phrase 2 - slight lift
+    db $42, $06, 12 ; D4
+    db $89, $06, 8  ; F4
+    db $B2, $06, 12 ; G4
+    db $89, $06, 8  ; F4
+    db $42, $06, 24 ; D4
+
+    ; Phrase 3 - danger peak
+    db $89, $06, 12 ; F4
+    db $B2, $06, 8  ; G4
+    db $D6, $06, 12 ; A4
+    db $B2, $06, 8  ; G4
+    db $89, $06, 24 ; F4
+
+    ; Phrase 4 - drops back down
+    db $72, $06, 12 ; E4
+    db $89, $06, 8  ; F4
+    db $72, $06, 12 ; E4
+    db $42, $06, 8  ; D4
+    db $42, $06, 24 ; D4
+
+    db $FF
+
+
+GameplayBassData:
+    ; 256-frame bass loop matching the melody.
+    ; Slow pulse keeps pressure without fighting gameplay SFX.
+
+    db $83, $04, 32 ; D3
+    db $83, $04, 32 ; D3
+    db $11, $05, 32 ; F3
+    db $83, $04, 32 ; D3
+
+    db $63, $05, 32 ; G3
+    db $11, $05, 32 ; F3
+    db $83, $04, 32 ; D3
+    db $83, $04, 32 ; D3
+
+    db $FF
+
+WavePattern:
+    ; Soft triangle-ish waveform for Channel 3.
+    db $01, $23, $45, $67
+    db $89, $AB, $CD, $EF
+    db $FE, $DC, $BA, $98
+    db $76, $54, $32, $10
 
 SpiritsPerDayTable:
     db 3, 5, 9, 15, 24, 36, 52, 72, 96, 120
