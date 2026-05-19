@@ -880,19 +880,46 @@ MakeRandomPortalX:
     ret
 
 ChooseEnemyType:
+    ; Enemy type:
+    ; 0 = chasing spirit
+    ; 1 = wandering spirit
+    ; 2 = phase spirit
+
     ; Day 1 only uses chasing spirits.
-    ; From Day 2 onward, roughly half of new spirits become wandering spirits.
     ld a, [wDay]
     cp 2
-    jr nc, .canWander
+    jr nc, .day2Plus
 
     xor a
     ret
 
-.canWander:
+.day2Plus:
+    ; Days 2-4 use only chasers and wanderers.
+    ld a, [wDay]
+    cp 5
+    jr nc, .day5Plus
+
     call UpdateRNG
     ld a, [wRNG]
     and 1
+    ret
+
+.day5Plus:
+    ; Day 5 onward:
+    ; 25 percent chance of phase spirit.
+    call UpdateRNG
+    ld a, [wRNG]
+    and 3
+    cp 0
+    jr z, .phaseSpirit
+
+    ; Otherwise choose chaser or wanderer.
+    ld a, [wRNG]
+    and 1
+    ret
+
+.phaseSpirit:
+    ld a, 2
     ret
 
 InitEnemy0Velocity:
@@ -975,8 +1002,10 @@ UpdateEnemy0:
     inc a
     ld [wEnemy0MoveTimer], a
 
-    ; Wandering spirits move every 3 frames.
     ld a, [wEnemy0Type]
+    cp 2
+    jr z, .phaseTimer
+
     and a
     jr z, .chaseTimer
 
@@ -998,6 +1027,15 @@ UpdateEnemy0:
     call MoveEnemy0TowardPlayer
     ret
 
+.phaseTimer:
+    ld a, [wEnemy0MoveTimer]
+    cp 48
+    ret c
+    xor a
+    ld [wEnemy0MoveTimer], a
+    call MoveEnemy0Phase
+    ret
+
 UpdateEnemy1:
     ld a, [wEnemy1Active]
     and a
@@ -1007,8 +1045,10 @@ UpdateEnemy1:
     inc a
     ld [wEnemy1MoveTimer], a
 
-    ; Wandering spirits move every 3 frames.
     ld a, [wEnemy1Type]
+    cp 2
+    jr z, .phaseTimer
+
     and a
     jr z, .chaseTimer
 
@@ -1030,6 +1070,15 @@ UpdateEnemy1:
     call MoveEnemy1TowardPlayer
     ret
 
+.phaseTimer:
+    ld a, [wEnemy1MoveTimer]
+    cp 48
+    ret c
+    xor a
+    ld [wEnemy1MoveTimer], a
+    call MoveEnemy1Phase
+    ret
+
 UpdateEnemy2:
     ld a, [wEnemy2Active]
     and a
@@ -1039,8 +1088,10 @@ UpdateEnemy2:
     inc a
     ld [wEnemy2MoveTimer], a
 
-    ; Wandering spirits move every 3 frames.
     ld a, [wEnemy2Type]
+    cp 2
+    jr z, .phaseTimer
+
     and a
     jr z, .chaseTimer
 
@@ -1062,6 +1113,15 @@ UpdateEnemy2:
     call MoveEnemy2TowardPlayer
     ret
 
+.phaseTimer:
+    ld a, [wEnemy2MoveTimer]
+    cp 48
+    ret c
+    xor a
+    ld [wEnemy2MoveTimer], a
+    call MoveEnemy2Phase
+    ret
+
 UpdateEnemy3:
     ld a, [wEnemy3Active]
     and a
@@ -1071,8 +1131,10 @@ UpdateEnemy3:
     inc a
     ld [wEnemy3MoveTimer], a
 
-    ; Wandering spirits move every 3 frames.
     ld a, [wEnemy3Type]
+    cp 2
+    jr z, .phaseTimer
+
     and a
     jr z, .chaseTimer
 
@@ -1092,6 +1154,15 @@ UpdateEnemy3:
     xor a
     ld [wEnemy3MoveTimer], a
     call MoveEnemy3TowardPlayer
+    ret
+
+.phaseTimer:
+    ld a, [wEnemy3MoveTimer]
+    cp 48
+    ret c
+    xor a
+    ld [wEnemy3MoveTimer], a
+    call MoveEnemy3Phase
     ret
 
 MoveEnemy0TowardPlayer:
@@ -1389,6 +1460,91 @@ BounceEnemy3:
     ret c
     ld a, 255
     ld [wEnemy3DY], a
+    ret
+
+MoveEnemy0Phase:
+    call MakePhaseXNearPlayer
+    ld [wEnemy0X], a
+    call MakePhaseYNearPlayer
+    ld [wEnemy0Y], a
+    ret
+
+MoveEnemy1Phase:
+    call MakePhaseXNearPlayer
+    ld [wEnemy1X], a
+    call MakePhaseYNearPlayer
+    ld [wEnemy1Y], a
+    ret
+
+MoveEnemy2Phase:
+    call MakePhaseXNearPlayer
+    ld [wEnemy2X], a
+    call MakePhaseYNearPlayer
+    ld [wEnemy2Y], a
+    ret
+
+MoveEnemy3Phase:
+    call MakePhaseXNearPlayer
+    ld [wEnemy3X], a
+    call MakePhaseYNearPlayer
+    ld [wEnemy3Y], a
+    ret
+
+MakePhaseXNearPlayer:
+    ; Teleport left or right of the player.
+    call UpdateRNG
+    ld a, [wRNG]
+    bit 0, a
+    jr z, .leftSide
+
+.rightSide:
+    ld a, [wPlayerX]
+    add 32
+    cp 152
+    jr c, .done
+    ld a, 152
+    ret
+
+.leftSide:
+    ld a, [wPlayerX]
+    cp 48
+    jr c, .clampLeft
+    sub 32
+    ret
+
+.clampLeft:
+    ld a, 16
+
+.done:
+    ret
+
+
+MakePhaseYNearPlayer:
+    ; Teleport above or below the player.
+    call UpdateRNG
+    ld a, [wRNG]
+    bit 1, a
+    jr z, .abovePlayer
+
+.belowPlayer:
+    ld a, [wPlayerY]
+    add 24
+    cp 144
+    jr c, .done
+    ld a, 144
+    ret
+
+.abovePlayer:
+    ld a, [wPlayerY]
+    cp 72
+    jr c, .clampTop
+    sub 24
+    ret
+
+.clampTop:
+    ld a, 48
+
+.done:
     ret
 
 ; ------------------------------------------------------------
@@ -2084,17 +2240,25 @@ HideAllSprites:
 DrawEnemy0:
     ld a, [wEnemy0Active]
     and a
-    jr z, HideOneSprite
+    jp z, HideOneSprite
+
     ld a, [wEnemy0Y]
     ld [hli], a
     ld a, [wEnemy0X]
     ld [hli], a
 
     ld a, [wEnemy0Type]
+    cp 2
+    jr z, .phaseTile
+
     and a
     jr z, .normalTile
 
     ld a, 20
+    jr .writeTile
+
+.phaseTile:
+    ld a, 46
     jr .writeTile
 
 .normalTile:
@@ -2106,20 +2270,29 @@ DrawEnemy0:
     ld [hli], a
     ret
 
+
 DrawEnemy1:
     ld a, [wEnemy1Active]
     and a
-    jr z, HideOneSprite
+    jp z, HideOneSprite
+
     ld a, [wEnemy1Y]
     ld [hli], a
     ld a, [wEnemy1X]
     ld [hli], a
 
     ld a, [wEnemy1Type]
+    cp 2
+    jr z, .phaseTile
+
     and a
     jr z, .normalTile
 
     ld a, 20
+    jr .writeTile
+
+.phaseTile:
+    ld a, 46
     jr .writeTile
 
 .normalTile:
@@ -2131,20 +2304,29 @@ DrawEnemy1:
     ld [hli], a
     ret
 
+
 DrawEnemy2:
     ld a, [wEnemy2Active]
     and a
-    jr z, HideOneSprite
+    jp z, HideOneSprite
+
     ld a, [wEnemy2Y]
     ld [hli], a
     ld a, [wEnemy2X]
     ld [hli], a
 
     ld a, [wEnemy2Type]
+    cp 2
+    jr z, .phaseTile
+
     and a
     jr z, .normalTile
 
     ld a, 20
+    jr .writeTile
+
+.phaseTile:
+    ld a, 46
     jr .writeTile
 
 .normalTile:
@@ -2156,20 +2338,29 @@ DrawEnemy2:
     ld [hli], a
     ret
 
+
 DrawEnemy3:
     ld a, [wEnemy3Active]
     and a
-    jr z, HideOneSprite
+    jp z, HideOneSprite
+
     ld a, [wEnemy3Y]
     ld [hli], a
     ld a, [wEnemy3X]
     ld [hli], a
 
     ld a, [wEnemy3Type]
+    cp 2
+    jr z, .phaseTile
+
     and a
     jr z, .normalTile
 
     ld a, 20
+    jr .writeTile
+
+.phaseTile:
+    ld a, 46
     jr .writeTile
 
 .normalTile:
@@ -2180,6 +2371,7 @@ DrawEnemy3:
     ld a, 1
     ld [hli], a
     ret
+
 
 HideOneSprite:
     xor a
@@ -4511,5 +4703,15 @@ SpriteTiles:
     db %11111111, %11111111
     db %01100110, %01100110
     db %00111100, %00111100
+
+; Tile 46: Phase Spirit
+    db %00011000, %00011000
+    db %00100100, %00100100
+    db %01011010, %01011010
+    db %10111101, %10111101
+    db %11111111, %11111111
+    db %01011010, %01011010
+    db %00100100, %00100100
+    db %00011000, %00011000
 
 SpriteTilesEnd:
