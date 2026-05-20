@@ -12,8 +12,9 @@ SECTION "WRAM Variables", WRAM0
 
 wGameState:       db
 
-wJoyDir:          db
-wJoyButtons:      db
+wJoyDir:              db
+wJoyButtons:          db
+wJoyButtonsPressed:   db
 
 wPlayerX:         db
 wPlayerY:         db
@@ -25,9 +26,10 @@ wPlayerKnockTimer:   db
 wPlayerKnockDX:      db
 wPlayerKnockDY:      db
 
-wKiWaveCharges:   db
-wKiWaveTimer:     db
-wKiWaveCooldown:  db
+wKiWaveCharges:      db
+wMaxKiWaveCharges:   db
+wKiWaveTimer:        db
+wKiWaveCooldown:     db
 
 wProjectileX:     db
 wProjectileY:     db
@@ -69,15 +71,19 @@ wEnemy3DY:        db
 
 wDay:             db
 wSpiritsLeft:     db
-wScoreThousands:  db
-wScoreHundreds:   db
-wScoreTens:       db
-wScoreOnes:       db
+wScoreHundredThousands: db
+wScoreTenThousands:     db
+wScoreThousands:        db
+wScoreHundreds:         db
+wScoreTens:             db
+wScoreOnes:             db
 
-wHighThousands:   db
-wHighHundreds:    db
-wHighTens:        db
-wHighOnes:        db
+wHighHundredThousands:  db
+wHighTenThousands:      db
+wHighThousands:         db
+wHighHundreds:          db
+wHighTens:              db
+wHighOnes:              db
 
 
 wRNG:             db
@@ -216,13 +222,18 @@ InitTitle:
     ld a, 1
     ld [wDay], a
     ld [wKiWaveCharges], a
+    ld [wMaxKiWaveCharges], a
 
     xor a
     ld [wProjectileActive], a
+    ld [wScoreHundredThousands], a
+    ld [wScoreTenThousands], a
     ld [wScoreThousands], a
     ld [wScoreHundreds], a
     ld [wScoreTens], a
     ld [wScoreOnes], a
+    ld [wHighHundredThousands], a
+    ld [wHighTenThousands], a
     ld [wHighThousands], a
     ld [wHighHundreds], a
     ld [wHighTens], a
@@ -280,6 +291,8 @@ InitGame:
     ld [wPlayerInvuln], a
     ld [wPlayerMoveTimer], a
     ld [wProjectileActive], a
+    ld [wScoreHundredThousands], a
+    ld [wScoreTenThousands], a
     ld [wScoreThousands], a
     ld [wScoreHundreds], a
     ld [wScoreTens], a
@@ -294,6 +307,7 @@ InitGame:
 
     ld a, 1
     ld [wKiWaveCharges], a
+    ld [wMaxKiWaveCharges], a
     ld [wDay], a
 
     ld a, 91
@@ -391,6 +405,19 @@ ReadJoypad:
     ldh a, [rP1]
     cpl
     and $0F
+
+    ; Store the new button state in b.
+    ld b, a
+
+    ; wJoyButtonsPressed = newly pressed buttons only.
+    ; Formula: newButtons AND NOT oldButtons.
+    ld a, [wJoyButtons]
+    cpl
+    and b
+    ld [wJoyButtonsPressed], a
+
+    ; Now store the current held buttons.
+    ld a, b
     ld [wJoyButtons], a
 
     ret
@@ -588,31 +615,43 @@ UpdateKiWave:
     ld [wKiWaveTimer], a
 
 .updateCooldown:
-    ; If Ki Wave is already ready, no cooldown is needed.
-    ld a, [wKiWaveCharges]
-    and a
-    jr nz, .checkInput
-
-    ; If not ready, count cooldown down.
+    ; Recharge timer runs in the background.
     ld a, [wKiWaveCooldown]
     and a
-    jr z, .restoreCharge
+    jr z, .checkInput
 
     dec a
     ld [wKiWaveCooldown], a
-
-    ; If cooldown just reached zero, restore charge.
     and a
     jr nz, .checkInput
 
-.restoreCharge:
-    ld a, 1
+    ; Cooldown finished, restore one charge if below max.
+    ld a, [wKiWaveCharges]
+    ld b, a
+    ld a, [wMaxKiWaveCharges]
+    cp b
+    jr z, .checkInput
+    jr c, .checkInput
+
+    ld a, b
+    inc a
     ld [wKiWaveCharges], a
     call MarkHUDDirty
 
+    ; If still below max, start another recharge cycle.
+    ld b, a
+    ld a, [wMaxKiWaveCharges]
+    cp b
+    jr z, .checkInput
+    jr c, .checkInput
+
+    ld a, KI_WAVE_COOLDOWN
+    ld [wKiWaveCooldown], a
+
 .checkInput:
-    ; B triggers Ki Wave, but only if ready.
-    ld a, [wJoyButtons]
+    ; B triggers Ki Wave only on the first press frame.
+    ; This stops one held press from spending multiple charges.
+    ld a, [wJoyButtonsPressed]
     bit 1, a
     ret z
 
@@ -620,15 +659,20 @@ UpdateKiWave:
     and a
     ret z
 
-    ; Spend the charge.
-    xor a
+    ; Spend one charge.
+    dec a
     ld [wKiWaveCharges], a
     call MarkHUDDirty
 
-    ; Start cooldown.
+    ; Start recharge only if one is not already running.
+    ld a, [wKiWaveCooldown]
+    and a
+    jr nz, .startBurst
+
     ld a, KI_WAVE_COOLDOWN
     ld [wKiWaveCooldown], a
 
+.startBurst:
     ; Start visual burst timer.
     ld a, 12
     ld [wKiWaveTimer], a
@@ -1577,6 +1621,7 @@ EnemyKilledWave:
     ret
 
 Add100Score:
+    ; +100 means increment the hundreds digit.
     ld a, [wScoreHundreds]
     inc a
     cp 10
@@ -1590,12 +1635,32 @@ Add100Score:
     cp 10
     jr c, .storeThousands
 
-    ; Clamp at 9999.
-    ld a, 9
+    xor a
     ld [wScoreThousands], a
-    ld [wScoreHundreds], a
-    ld [wScoreTens], a
-    ld [wScoreOnes], a
+
+    ld a, [wScoreTenThousands]
+    inc a
+    cp 10
+    jr c, .storeTenThousands
+
+    xor a
+    ld [wScoreTenThousands], a
+
+    ld a, [wScoreHundredThousands]
+    inc a
+    cp 10
+    jr c, .storeHundredThousands
+
+    ; Clamp at 999999.
+    call ClampScore999999
+    ret
+
+.storeHundredThousands:
+    ld [wScoreHundredThousands], a
+    ret
+
+.storeTenThousands:
+    ld [wScoreTenThousands], a
     ret
 
 .storeThousands:
@@ -1633,12 +1698,32 @@ Add150Score:
     cp 10
     jr c, .storeThousands
 
-    ; Clamp at 9999.
-    ld a, 9
+    xor a
     ld [wScoreThousands], a
-    ld [wScoreHundreds], a
-    ld [wScoreTens], a
-    ld [wScoreOnes], a
+
+    ld a, [wScoreTenThousands]
+    inc a
+    cp 10
+    jr c, .storeTenThousands
+
+    xor a
+    ld [wScoreTenThousands], a
+
+    ld a, [wScoreHundredThousands]
+    inc a
+    cp 10
+    jr c, .storeHundredThousands
+
+    ; Clamp at 999999.
+    call ClampScore999999
+    ret
+
+.storeHundredThousands:
+    ld [wScoreHundredThousands], a
+    ret
+
+.storeTenThousands:
+    ld [wScoreTenThousands], a
     ret
 
 .storeThousands:
@@ -1653,8 +1738,35 @@ Add150Score:
     ld [wScoreTens], a
     ret
 
+
+ClampScore999999:
+    ld a, 9
+    ld [wScoreHundredThousands], a
+    ld [wScoreTenThousands], a
+    ld [wScoreThousands], a
+    ld [wScoreHundreds], a
+    ld [wScoreTens], a
+    ld [wScoreOnes], a
+    ret
+
 UpdateHighScoreIfNeeded:
-    ; Compare score thousands.
+    ; Compare hundred-thousands.
+    ld a, [wScoreHundredThousands]
+    ld b, a
+    ld a, [wHighHundredThousands]
+    cp b
+    jr c, .copyScoreToHigh
+    jr nz, .done
+
+    ; Compare ten-thousands.
+    ld a, [wScoreTenThousands]
+    ld b, a
+    ld a, [wHighTenThousands]
+    cp b
+    jr c, .copyScoreToHigh
+    jr nz, .done
+
+    ; Compare thousands.
     ld a, [wScoreThousands]
     ld b, a
     ld a, [wHighThousands]
@@ -1690,6 +1802,12 @@ UpdateHighScoreIfNeeded:
     ret
 
 .copyScoreToHigh:
+    ld a, [wScoreHundredThousands]
+    ld [wHighHundredThousands], a
+
+    ld a, [wScoreTenThousands]
+    ld [wHighTenThousands], a
+
     ld a, [wScoreThousands]
     ld [wHighThousands], a
 
@@ -2096,10 +2214,18 @@ CheckWaveClear:
     ret nz
 
     ld a, [wDay]
+    cp 99
+    jr nc, .dayAlreadyCapped
+
     inc a
     ld [wDay], a
 
-    ld a, 1
+    ; Every 10 days, increase max Ki Wave charges by 1.
+    ; Day 10 = 2 charges, Day 20 = 3 charges, etc.
+    call MaybeIncreaseMaxKiWaveCharges
+
+.dayAlreadyCapped:
+    ld a, [wMaxKiWaveCharges]
     ld [wKiWaveCharges], a
 
     xor a
@@ -2125,6 +2251,37 @@ AbsDiffAAndB:
 
 .aGreaterOrEqual:
     sub b
+    ret
+
+MaybeIncreaseMaxKiWaveCharges:
+    ld a, [wDay]
+    cp 10
+    jr z, .increase
+    cp 20
+    jr z, .increase
+    cp 30
+    jr z, .increase
+    cp 40
+    jr z, .increase
+    cp 50
+    jr z, .increase
+    cp 60
+    jr z, .increase
+    cp 70
+    jr z, .increase
+    cp 80
+    jr z, .increase
+    cp 90
+    jr z, .increase
+    ret
+
+.increase:
+    ld a, [wMaxKiWaveCharges]
+    cp 9
+    ret nc
+
+    inc a
+    ld [wMaxKiWaveCharges], a
     ret
 
 ; ------------------------------------------------------------
@@ -2782,9 +2939,10 @@ DrawGameOverScreen:
 
 
     ; --------------------------------------------------------
-    ; Row 8: SCORE 0000
+    ; Row 8: SCORE 000000
     ; --------------------------------------------------------
-    ld hl, _SCRN0 + 256 + 4
+
+    ld hl, _SCRN0 + 256 + 3
 
     ld a, TILE_SCORE_ICON
     ld [hli], a
@@ -2806,13 +2964,13 @@ DrawGameOverScreen:
     xor a
     ld [hli], a
 
-    call WriteScore4Digits
+    call WriteScore6Digits
 
 
     ; --------------------------------------------------------
-    ; Row 10: HIGH 0000
+    ; Row 10: HIGH 000000
     ; --------------------------------------------------------
-    ld hl, _SCRN0 + 320 + 5
+    ld hl, _SCRN0 + 320 + 4
 
     ld a, TILE_MOON_ICON
     ld [hli], a
@@ -2901,20 +3059,20 @@ SetGameplayHUDPalettes:
     dec b
     jr nz, .hearts
 
-    ; Score: row 1, columns 8-12, palette 2 white/gold.
-    ; Icon + four digits.
+    ; Score: row 1, columns 8-14, palette 2 white/gold.
+    ; Icon + six digits.
     ld hl, _SCRN0 + 32 + 8
-    ld b, 5
+    ld b, 7
 .score:
     ld a, PAL_BG_SCORE
     ld [hli], a
     dec b
     jr nz, .score
 
-    ; Day: row 1, columns 17-18, palette 4 moon/white.
-    ; Moon icon + digit.
+    ; Day: row 1, columns 17-19, palette 4 moon/white.
+    ; Moon icon + two digits.
     ld hl, _SCRN0 + 32 + 17
-    ld b, 2
+    ld b, 3
 .day:
     ld a, PAL_BG_MOON
     ld [hli], a
@@ -3006,18 +3164,18 @@ SetGameOverScreenPalettes:
     dec b
     jr nz, .gameOverTitle
 
-    ; SCORE line: row 8, columns 4-15, gold.
-    ld hl, _SCRN0 + 256 + 4
-    ld b, 12
+    ; SCORE line: row 8, columns 3-15, gold.
+    ld hl, _SCRN0 + 256 + 3
+    ld b, 13
 .gameOverScore:
     ld a, PAL_BG_SCORE
     ld [hli], a
     dec b
     jr nz, .gameOverScore
 
-    ; HIGH line: row 10, columns 5-15, white.
-    ld hl, _SCRN0 + 320 + 5
-    ld b, 11
+    ; HIGH line: row 10, columns 4-15, white.
+    ld hl, _SCRN0 + 320 + 4
+    ld b, 12
 .gameOverHigh:
     ld a, PAL_BG_MOON
     ld [hli], a
@@ -3074,7 +3232,7 @@ UpdateHUD:
     ld hl, _SCRN0 + 32 + 8
     ld a, TILE_SCORE_ICON
     ld [hli], a
-    call WriteScore4Digits
+    call WriteScore6Digits
 
 
     ; --------------------------------------------------------
@@ -3085,8 +3243,7 @@ UpdateHUD:
     ld hl, _SCRN0 + 32 + 17
     ld a, TILE_MOON_ICON
     ld [hli], a
-    ld a, [wDay]
-    call WriteDigitInc
+    call WriteDay2Digits
 
 
     ; --------------------------------------------------------
@@ -3114,7 +3271,13 @@ WriteDigitInc:
     ld [hli], a
     ret
 
-WriteScore4Digits:
+WriteScore6Digits:
+    ld a, [wScoreHundredThousands]
+    call WriteDigitInc
+
+    ld a, [wScoreTenThousands]
+    call WriteDigitInc
+
     ld a, [wScoreThousands]
     call WriteDigitInc
 
@@ -3129,6 +3292,34 @@ WriteScore4Digits:
 
     ret
 
+WriteDay2Digits:
+    ld a, [wDay]
+    cp 100
+    jr c, .notOverCap
+
+    ld a, 99
+
+.notOverCap:
+    ld b, 0
+
+.tensLoop:
+    cp 10
+    jr c, .writeDigits
+
+    sub 10
+    inc b
+    jr .tensLoop
+
+.writeDigits:
+    ld c, a
+
+    ld a, b
+    call WriteDigitInc
+
+    ld a, c
+    call WriteDigitInc
+
+    ret
 ; ------------------------------------------------------------
 ; Graphics loading
 ; ------------------------------------------------------------
